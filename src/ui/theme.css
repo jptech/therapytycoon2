@@ -1,0 +1,313 @@
+@import 'tailwindcss';
+
+/*
+ * "Lamplit clinic" — a warmly lit evening office, not a SaaS dashboard.
+ * Ink teal for text and lines, lamplight amber for accents and literal lamps,
+ * paper cream surfaces, sage for growth, dusty plum for rest, soft brick for
+ * warnings used sparingly.
+ */
+
+@theme {
+  --color-ink: #1e3a3a;
+  --color-ink-soft: #33534f;
+  --color-ink-faint: #6b8785;
+  --color-amber: #e8a94c;
+  --color-amber-deep: #c9873a;
+  --color-amber-glow: #f6d79b;
+  --color-paper: #faf5ec;
+  --color-paper-warm: #f3e9d8;
+  --color-paper-deep: #e8dbc4;
+  --color-sage: #8faf8b;
+  --color-sage-deep: #5f8460;
+  --color-plum: #8b6b8f;
+  --color-plum-deep: #6a4f6e;
+  --color-brick: #c2634f;
+  --color-brick-soft: #dd9683;
+  --color-night: #16292c;
+  --color-night-soft: #22393c;
+
+  --font-display: 'Fraunces', 'Iowan Old Style', Georgia, serif;
+  --font-body: 'Nunito Sans', system-ui, -apple-system, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+
+  --radius-card: 14px;
+  --radius-pill: 999px;
+
+  --shadow-lamp: 0 18px 44px -22px rgba(30, 58, 58, 0.55);
+  --shadow-soft: 0 2px 10px -4px rgba(30, 58, 58, 0.3);
+
+  --ease-warm: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+:root {
+  --ambient: 0; /* 0 = morning, 1 = evening. Set by the office scene. */
+  color-scheme: light;
+}
+
+/* ── Base ─────────────────────────────────────────────────────────────────── */
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: var(--font-body);
+  color: var(--color-ink);
+  background: var(--color-night);
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in oklab, var(--color-ink) 25%, transparent) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+::-webkit-scrollbar-thumb {
+  background: color-mix(in oklab, var(--color-ink) 22%, transparent);
+  border-radius: 999px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+}
+
+/* ── Reusable component classes ───────────────────────────────────────────── */
+
+@layer components {
+  .paper {
+    background:
+      radial-gradient(120% 100% at 20% 0%, color-mix(in oklab, var(--color-amber-glow) 22%, transparent), transparent 62%),
+      var(--color-paper);
+    border: 1px solid color-mix(in oklab, var(--color-ink) 14%, transparent);
+    border-radius: var(--radius-card);
+    box-shadow: var(--shadow-lamp);
+  }
+
+  .paper-flat {
+    background: var(--color-paper);
+    border: 1px solid color-mix(in oklab, var(--color-ink) 12%, transparent);
+    border-radius: var(--radius-card);
+  }
+
+  .card-warm {
+    background: linear-gradient(180deg, var(--color-paper) 0%, var(--color-paper-warm) 100%);
+    border: 1px solid color-mix(in oklab, var(--color-ink) 13%, transparent);
+    border-radius: var(--radius-card);
+    box-shadow: var(--shadow-soft);
+  }
+
+  .display {
+    font-family: var(--font-display);
+    font-weight: 600;
+    letter-spacing: -0.015em;
+    font-variation-settings: 'SOFT' 60, 'WONK' 1;
+  }
+
+  .tabular {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.02em;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    padding: 0.5rem 0.95rem;
+    border-radius: var(--radius-pill);
+    font-weight: 700;
+    font-size: 0.86rem;
+    border: 1px solid transparent;
+    transition:
+      transform 0.16s var(--ease-warm),
+      box-shadow 0.16s var(--ease-warm),
+      background-color 0.16s var(--ease-warm),
+      filter 0.16s var(--ease-warm);
+    white-space: nowrap;
+  }
+  .btn:active:not(:disabled) {
+    transform: translateY(1px) scale(0.985);
+  }
+  .btn:disabled {
+    opacity: 0.42;
+    cursor: not-allowed;
+  }
+  .btn:focus-visible {
+    outline: 2px solid var(--color-amber);
+    outline-offset: 2px;
+  }
+
+  .btn-primary {
+    background: linear-gradient(180deg, var(--color-amber) 0%, var(--color-amber-deep) 100%);
+    color: #2a1a06;
+    box-shadow: 0 6px 18px -8px rgba(201, 135, 58, 0.9);
+  }
+  .btn-primary:hover:not(:disabled) {
+    filter: brightness(1.06);
+  }
+
+  .btn-ghost {
+    background: color-mix(in oklab, var(--color-ink) 6%, transparent);
+    color: var(--color-ink);
+    border-color: color-mix(in oklab, var(--color-ink) 16%, transparent);
+  }
+  .btn-ghost:hover:not(:disabled) {
+    background: color-mix(in oklab, var(--color-ink) 11%, transparent);
+  }
+
+  .btn-sage {
+    background: linear-gradient(180deg, var(--color-sage) 0%, var(--color-sage-deep) 100%);
+    color: #f2f8f1;
+  }
+  .btn-plum {
+    background: linear-gradient(180deg, var(--color-plum) 0%, var(--color-plum-deep) 100%);
+    color: #f8f3f8;
+  }
+  .btn-brick {
+    background: linear-gradient(180deg, var(--color-brick-soft) 0%, var(--color-brick) 100%);
+    color: #fff5f1;
+  }
+
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.28rem;
+    padding: 0.14rem 0.52rem;
+    border-radius: var(--radius-pill);
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.015em;
+    background: color-mix(in oklab, var(--color-ink) 8%, transparent);
+    color: var(--color-ink-soft);
+    border: 1px solid color-mix(in oklab, var(--color-ink) 12%, transparent);
+  }
+
+  .hairline {
+    border-color: color-mix(in oklab, var(--color-ink) 12%, transparent);
+  }
+
+  /* Panels slide over the office scene rather than replacing it. */
+  .panel-enter {
+    animation: panel-in 0.34s var(--ease-warm) both;
+  }
+  .fade-in {
+    animation: fade-in 0.3s var(--ease-warm) both;
+  }
+  .pop-in {
+    animation: pop-in 0.36s var(--ease-warm) both;
+  }
+  .rise-in {
+    animation: rise-in 0.42s var(--ease-warm) both;
+  }
+}
+
+@keyframes panel-in {
+  from {
+    opacity: 0;
+    transform: translateX(26px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.94) translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes lamp-flicker {
+  0%,
+  100% {
+    opacity: 0.92;
+  }
+  48% {
+    opacity: 1;
+  }
+  52% {
+    opacity: 0.86;
+  }
+}
+@keyframes gentle-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-4px);
+  }
+}
+@keyframes shimmer {
+  from {
+    background-position: -180% 0;
+  }
+  to {
+    background-position: 180% 0;
+  }
+}
+
+.animate-float {
+  animation: gentle-float 4.5s ease-in-out infinite;
+}
+.animate-flicker {
+  animation: lamp-flicker 5s ease-in-out infinite;
+}
+
+/* Respect the player's comfort settings. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+html[data-calm='true'] .juice-only {
+  display: none !important;
+}
+html[data-reduced='true'] *,
+html[data-reduced='true'] *::before,
+html[data-reduced='true'] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+}
