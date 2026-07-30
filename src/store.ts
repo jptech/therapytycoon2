@@ -153,6 +153,34 @@ export function getSim(): GameState {
   return useStore.getState().game.state;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Which modal owns the clock
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * `tick()` refuses to advance time while any event is pending — deliberately,
+ * so a decision can never be skipped. That makes it critical that *something*
+ * is always on screen to resolve it: a pending event nobody renders freezes the
+ * game in a way pause/play cannot fix.
+ *
+ * These two selectors are the single source of truth. App.tsx decides what to
+ * mount with exactly the same predicates the modals use to pick their subject,
+ * so the two can never disagree about whose turn it is.
+ */
+export function pendingDecision(s: GameState) {
+  return s.pendingEvents.find((p) => !!p.techniqueCards && p.techniqueCards.length > 0);
+}
+
+export function pendingChoice(s: GameState) {
+  if (pendingDecision(s)) return undefined;
+  return s.pendingEvents.find((p) => !p.techniqueCards || p.techniqueCards.length === 0);
+}
+
+/** True when the clock is blocked but nothing is on screen to unblock it. */
+export function isStuck(s: GameState): boolean {
+  return s.pendingEvents.length > 0 && !pendingDecision(s) && !pendingChoice(s);
+}
+
 export function dispatch(action: GameAction): void {
   useStore.getState().dispatch(action);
 }
@@ -219,6 +247,22 @@ export function startClock(): void {
 export function stopClock(): void {
   if (rafId !== null) cancelAnimationFrame(rafId);
   rafId = null;
+}
+
+// Dev-only inspection handle. The sim is deterministic and its whole state is
+// one object, so being able to read it from the console is the fastest way to
+// diagnose "the game is stuck" without adding logging everywhere.
+if (import.meta.env?.DEV && typeof window !== 'undefined') {
+  (window as unknown as Record<string, unknown>).__tt = {
+    get state() {
+      return useStore.getState().game.state;
+    },
+    get ui() {
+      return useStore.getState().ui;
+    },
+    dispatch,
+    store: useStore,
+  };
 }
 
 /** Keeps React honest about sim events that don't come from a dispatch. */

@@ -1,4 +1,5 @@
 import { type ReactNode, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 
 /** Shared building blocks. Every panel is assembled from these so the game
  *  reads as one designed object rather than a pile of screens. */
@@ -256,7 +257,15 @@ export function ProgressRing({
   );
 }
 
-/** Hover card used everywhere for "why is this number what it is". */
+/**
+ * Hover card used everywhere for "why is this number what it is".
+ *
+ * Rendered into a portal on `document.body` rather than beside its trigger. The
+ * HUD strip clips its overflow *and* establishes a stacking context via
+ * `backdrop-filter`, so an absolutely-positioned tooltip inside it was both cut
+ * off and trapped below the scene. A portal escapes any ancestor's clip,
+ * transform, filter or z-index, which is the only reliable way to do this.
+ */
 export function Tooltip({
   children,
   content,
@@ -267,30 +276,71 @@ export function Tooltip({
   side?: 'top' | 'bottom' | 'left' | 'right';
 }) {
   const [open, setOpen] = useState(false);
-  const pos = {
-    top: 'bottom-full left-1/2 -translate-x-1/2 mb-1.5',
-    bottom: 'top-full left-1/2 -translate-x-1/2 mt-1.5',
-    left: 'right-full top-1/2 -translate-y-1/2 mr-1.5',
-    right: 'left-full top-1/2 -translate-y-1/2 ml-1.5',
-  }[side];
+  const [rect, setRect] = useState<DOMRect | null>(null);
+  const ref = useRef<HTMLSpanElement | null>(null);
+
+  const show = () => {
+    const el = ref.current;
+    if (el) setRect(el.getBoundingClientRect());
+    setOpen(true);
+  };
+  const hide = () => setOpen(false);
+
+  // A tooltip anchored to a stale rect is worse than none, so close on any
+  // scroll or resize rather than trying to track the trigger.
+  useEffect(() => {
+    if (!open) return;
+    window.addEventListener('scroll', hide, true);
+    window.addEventListener('resize', hide);
+    return () => {
+      window.removeEventListener('scroll', hide, true);
+      window.removeEventListener('resize', hide);
+    };
+  }, [open]);
+
+  const GAP = 8;
+  let style: React.CSSProperties = {};
+  if (rect) {
+    switch (side) {
+      case 'bottom':
+        style = { top: rect.bottom + GAP, left: rect.left + rect.width / 2, transform: 'translateX(-50%)' };
+        break;
+      case 'left':
+        style = { top: rect.top + rect.height / 2, left: rect.left - GAP, transform: 'translate(-100%, -50%)' };
+        break;
+      case 'right':
+        style = { top: rect.top + rect.height / 2, left: rect.right + GAP, transform: 'translateY(-50%)' };
+        break;
+      default:
+        style = { top: rect.top - GAP, left: rect.left + rect.width / 2, transform: 'translate(-50%, -100%)' };
+    }
+  }
+
   return (
-    <span
-      className="relative inline-flex"
-      onMouseEnter={() => setOpen(true)}
-      onMouseLeave={() => setOpen(false)}
-      onFocus={() => setOpen(true)}
-      onBlur={() => setOpen(false)}
-    >
-      {children}
-      {open && (
-        <span
-          role="tooltip"
-          className={`absolute z-50 ${pos} pointer-events-none w-max max-w-[30ch] paper-flat px-2.5 py-1.5 text-[0.72rem] leading-snug shadow-lg fade-in`}
-        >
-          {content}
-        </span>
-      )}
-    </span>
+    <>
+      <span
+        ref={ref}
+        className="relative inline-flex"
+        onMouseEnter={show}
+        onMouseLeave={hide}
+        onFocus={show}
+        onBlur={hide}
+      >
+        {children}
+      </span>
+      {open && rect && typeof document !== 'undefined'
+        ? createPortal(
+            <span
+              role="tooltip"
+              style={{ position: 'fixed', zIndex: 90, ...style }}
+              className="pointer-events-none w-max max-w-[30ch] paper-flat px-2.5 py-1.5 text-[0.72rem] leading-snug shadow-lg fade-in"
+            >
+              {content}
+            </span>,
+            document.body,
+          )
+        : null}
+    </>
   );
 }
 

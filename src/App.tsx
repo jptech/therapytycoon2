@@ -1,5 +1,5 @@
 import { Suspense, lazy, useEffect } from 'react';
-import { startClock, stopClock, useSim, useStore, useUi, saveNow } from './store';
+import { isStuck, pendingChoice, pendingDecision, startClock, stopClock, useSim, useStore, useUi, saveNow } from './store';
 import { useAudio } from './audio/useAudio';
 
 import { Hud } from './ui/Hud';
@@ -67,8 +67,10 @@ export function App() {
   const reduced = useSim((s) => s.settings.reducedMotion);
   const philosophyOffered = useSim((s) => !!s.flags.philosophyAvailable && !s.philosophy);
   const quarterReview = useSim((s) => !!s.flags.showQuarterReview);
-  const hasSessionDecision = useSim((s) => s.pendingEvents.some((p) => !!p.techniqueCards));
-  const hasPlainEvent = useSim((s) => s.pendingEvents.some((p) => !p.techniqueCards));
+  // Same predicates the modals use to pick their subject — see store.ts.
+  const hasSessionDecision = useSim((s) => !!pendingDecision(s));
+  const hasPlainEvent = useSim((s) => !!pendingChoice(s));
+  const stuck = useSim(isStuck);
 
   useAudio();
 
@@ -85,6 +87,22 @@ export function App() {
   useEffect(() => {
     document.documentElement.dataset.reduced = String(reduced);
   }, [reduced]);
+
+  // Watchdog. The clock is blocked while events are pending, so an event no
+  // modal will render is an unrecoverable freeze — and a silent one, because
+  // pause/play cannot clear it. Belt and braces on top of the shared selectors:
+  // drop it, say so loudly, and let the day continue.
+  useEffect(() => {
+    if (!stuck) return;
+    const s = useStore.getState().game.state;
+    console.error(
+      '[watchdog] pending events with no modal to resolve them — dropping to unblock the clock',
+      s.pendingEvents.map((p) => ({ id: p.def.id, cards: p.techniqueCards?.length })),
+    );
+    s.pendingEvents = [];
+    if (s.dayPhase === 'running') s.paused = false;
+    useStore.setState({ rev: useStore.getState().rev + 1 });
+  }, [stuck]);
 
   // Save on the way out so a closed tab never costs a day.
   useEffect(() => {
