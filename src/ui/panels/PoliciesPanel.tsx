@@ -16,20 +16,14 @@ import { Button, Chip, Divider, EmptyState, PanelShell, SectionHeading } from '.
  * the wording.
  */
 
-// ─────────────────────────────────────────────────────────────────────────────
-// The one sanctioned direct write to sim state in the whole UI.
-//
-// `flags.autoSchedule` and `flags.autoTechnique` are plain booleans on
-// GameState.flags and there is no GameAction that sets them — the engine only
-// ever writes them itself when up_auto_scheduler is bought. So we set the flag
-// on the live state object and then dispatch a no-op ADVANCE_TUTORIAL with the
-// *current* step purely to bump the store revision so selectors re-run.
-// If a dedicated action is ever added, delete this and dispatch that instead.
-// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * `flags.autoSchedule` and `flags.autoTechnique` are plain booleans in the sim's
+ * flag bag that only the player ever toggles. They go through SET_FLAG so the
+ * toggle lands in the action stream — a replay has to be able to reproduce the
+ * moment somebody handed the schedule over to the machine.
+ */
 function setAutomationFlag(key: 'autoSchedule' | 'autoTechnique', value: boolean): void {
-  const st = useStore.getState();
-  st.game.state.flags[key] = value;
-  st.dispatch({ type: 'ADVANCE_TUTORIAL', step: st.game.state.tutorialStep });
+  useStore.getState().dispatch({ type: 'SET_FLAG', key, value });
 }
 
 const KIND_ORDER: PolicyKind[] = [

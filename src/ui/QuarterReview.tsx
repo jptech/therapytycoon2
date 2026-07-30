@@ -17,18 +17,13 @@ import { Button, Chip, Divider, Modal, SectionHeading, Sparkline } from './primi
 const WINDOW = 28;
 
 /**
- * `flags.showQuarterReview` is set by the sim during its overnight pass, and
- * there is no GameAction that clears it — it is presentation state that happens
- * to live in the sim's flag bag. So we clear it on the live state object, then
- * dispatch a no-op ADVANCE_TUTORIAL that re-sets `tutorialStep` to the value it
- * already holds. That dispatch changes nothing about the run; it exists purely
- * to bump the store's revision counter so every useSim selector re-runs and
- * this modal unmounts.
+ * `flags.showQuarterReview` is set by the sim during its overnight pass and
+ * cleared here. It is presentation state that happens to live in the sim's flag
+ * bag, so it goes back through SET_FLAG like everything else — a dismissal that
+ * bypassed the action stream would be missing from a recorded replay.
  */
 function dismissQuarterReview(): void {
-  const st = useStore.getState();
-  st.game.state.flags.showQuarterReview = false;
-  st.dispatch({ type: 'ADVANCE_TUTORIAL', step: st.game.state.tutorialStep });
+  useStore.getState().dispatch({ type: 'SET_FLAG', key: 'showQuarterReview', value: false });
 }
 
 /** One honest line per clinician, chosen by whatever is most true right now. */

@@ -144,6 +144,7 @@ describe('migrate', () => {
     'legacy',
     'alumni',
     'eventCooldowns',
+    'idSeq',
   ] as const;
 
   function v1Shaped(seed = 3131): Record<string, unknown> {
@@ -192,6 +193,23 @@ describe('migrate', () => {
     expect(migrated.legacy).toEqual({ points: 0, spent: [], runsCompleted: 0 });
     expect(migrated.alumni).toEqual([]);
     expect(migrated.eventCooldowns).toEqual({});
+    expect(typeof migrated.idSeq).toBe('number');
+  });
+
+  it('resumes id minting past the ids an older save already holds', () => {
+    // A save from before v6 has log ids from the old process-global counter.
+    // Restarting the new counter at zero would mint a second `log_12_3`.
+    const raw = v1Shaped(3137);
+    const highest = Math.max(
+      ...(raw.log as { id: string }[]).map((l) => Number(l.id.split('_').pop())),
+    );
+    const migrated = migrate(raw);
+    expect(migrated.idSeq).toBe(highest + 1);
+
+    const game = new Game(migrated);
+    const before = new Set(game.state.log.map((l) => l.id));
+    game.dispatch({ type: 'AUTOFILL_SCHEDULE' });
+    expect(game.state.log.filter((l) => !before.has(l.id))).toHaveLength(1);
   });
 
   it('preserves the run itself while migrating', () => {

@@ -9,11 +9,14 @@ bun run typecheck    # tsc --noEmit — must be 0 before you claim done
 bun run test         # vitest — sim formulas, liveness, saves, content integrity
 bun run balance      # headless balance harness — READ docs/BALANCE.md FIRST
 bun run playtest     # narrated single run — the fastest way to see a change
+bun run replay       # replay a recorded action log; --verify checks it reproduces
 bun run build
 ```
 
-In dev, `window.__tt` exposes `{state, ui, dispatch, store}` — the whole simulation is one
-object, so reading it from the console beats adding logging.
+In dev, `window.__tt` exposes `{state, ui, dispatch, store, replay, saveReplay}` — the whole
+simulation is one object, so reading it from the console beats adding logging. `__tt.saveReplay()`
+writes the run's action log; `bun run replay <file> --verify` proves it reproduces, or names the
+day it stopped.
 
 ---
 
@@ -97,10 +100,23 @@ stacking context via `backdrop-filter`, so anything positioned inside it is both
 trapped below the scene. Use `placeAnchored()` from `src/ui/anchor.ts` for positioning — it flips
 and clamps to the viewport, and it is unit tested without a DOM.
 
-**Three UI surfaces write `state.flags` directly** and dispatch a no-op to force a publish,
-because those transient flags have no dedicated action. Every site is commented. If you need a
-fourth, add a real action instead. (The watchdog's emergency `pendingEvents = []` is a fourth
-direct write, justified because it is recovering from an otherwise unrecoverable state.)
+**The UI never writes sim state, including `state.flags`.** Transient presentation flags
+(`showQuarterReview`, `autoSchedule`, `autoTechnique`) go through `SET_FLAG` like everything else.
+They used to be written straight onto the live state with a no-op dispatch to force a publish,
+which worked and was invisible — until replay, at which point a run where somebody closed the
+quarter review no longer reproduced. Two direct writes remain, both outside the run's action
+stream and both commented where they live: the watchdog's emergency `pendingEvents = []` in
+`App.tsx`, recovering from an otherwise unrecoverable state — it logs loudly, and a replay that
+crosses it is not to be trusted — and `spendLegacy` in `EndScreen.tsx`, which spends
+meta-progression *after* the run has ended, so there is no run left for it to desync. That second
+one is why `Recorder` deep-copies the legacy it was started from; see `src/sim/replay.test.ts`.
+
+**A run is reproducible from its action log.** `src/sim/replay.ts` records every dispatch and
+fingerprints the state at each day boundary, so a bug report replays exactly and a drift names the
+day. Two things keep that honest and both are easy to break: **every id the sim mints must come
+off `state.idSeq` or the rng**, never a module-level counter (that bug cost a whole-state diff for
+most of the build), and **anything that changes the run must be an action** — a helper called
+directly from the UI or a tool is a hole in the log. `src/sim/replay.test.ts` guards both.
 
 ## Before you say a change is done
 

@@ -7,14 +7,18 @@
  *   bun run tools/playtest.ts
  *   bun run tools/playtest.ts --seed 7 --days 90 --difficulty challenge
  *   bun run tools/playtest.ts --verbose        # every session, not just notable ones
+ *   bun run tools/playtest.ts --record run.json   # keep the action log
+ *
+ * A recorded run replays exactly: `bun run replay run.json --verify`.
  */
+import { writeFileSync } from 'node:fs';
 import { EventBus } from '../src/sim/bus';
 import { Game, capacity, dailyExpenses } from '../src/sim/engine';
 import { activeTherapists } from '../src/sim/eventsys';
-import { autofillSchedule } from '../src/sim/scheduler';
+import { Recorder, replayStamp, serializeReplay } from '../src/sim/replay';
 import { CONDITION_LABELS, SEVERITY_LABELS } from '../src/sim/balance';
 import { formatMoney } from '../src/sim/util';
-import type { Difficulty } from '../src/sim/types';
+import type { Difficulty, GameAction } from '../src/sim/types';
 
 const argv = process.argv.slice(2);
 const arg = (flag: string, dflt: string) => {
@@ -26,6 +30,7 @@ const seed = Number(arg('--seed', '2024'));
 const days = Number(arg('--days', '60'));
 const difficulty = arg('--difficulty', 'standard') as Difficulty;
 const verbose = argv.includes('--verbose');
+const recordTo = arg('--record', '');
 
 const dim = (s: string) => `\x1b[2m${s}\x1b[0m`;
 const bold = (s: string) => `\x1b[1m${s}\x1b[0m`;
@@ -35,8 +40,20 @@ const brick = (s: string) => `\x1b[31m${s}\x1b[0m`;
 const plum = (s: string) => `\x1b[35m${s}\x1b[0m`;
 
 const bus = new EventBus();
-const game = Game.create({ seed, difficulty, skipTutorial: true }, bus);
+const opts = { seed, difficulty, skipTutorial: true };
+const game = Game.create(opts, bus);
 const s = game.state;
+
+// Recording is a wrapper around dispatch rather than a hook inside the engine,
+// because the sim must not know it is being watched. Everything below goes
+// through `dispatch()` — including the schedule autofill, which used to call into
+// the scheduler directly and would have left a hole in the log.
+const recorder = recordTo ? Recorder.forNewGame(opts, s) : undefined;
+function dispatch(action: GameAction): void {
+  const at = replayStamp(s);
+  game.dispatch(action);
+  recorder?.record(action, at, s);
+}
 
 console.log(bold(`\n  ${s.practiceName}`));
 console.log(dim(`  seed ${seed} · ${difficulty} · ${days} days\n`));
@@ -123,13 +140,13 @@ function resolveEvents(): void {
           (rank(a.preview.qualityHint) - a.preview.regressionChance * 3)
         );
       })[0];
-      game.dispatch({ type: 'CHOOSE_TECHNIQUE', instanceId: p.instanceId, techniqueId: best.techniqueId });
+      dispatch({ type: 'CHOOSE_TECHNIQUE', instanceId: p.instanceId, techniqueId: best.techniqueId });
       continue;
     }
     const choice = p.choices[0];
     console.log(plum(`  d${s.day} ◆ ${p.title}`));
     console.log(dim(`        → ${choice.label}${choice.hint ? dim(` (${choice.hint})`) : ''}`));
-    game.dispatch({ type: 'RESOLVE_EVENT', instanceId: p.instanceId, choiceId: choice.id });
+    dispatch({ type: 'RESOLVE_EVENT', instanceId: p.instanceId, choiceId: choice.id });
   }
 }
 
@@ -141,19 +158,19 @@ while (s.day <= days && !s.ended && guard++ < days * 5000) {
     const serveable = activeTherapists(s).length * 10;
     for (const c of s.clients.filter((x) => x.status === 'waitlist')) {
       if (s.clients.filter((x) => x.status === 'active').length >= Math.min(cap, serveable)) break;
-      game.dispatch({ type: 'ACCEPT_CLIENT', clientId: c.id });
+      dispatch({ type: 'ACCEPT_CLIENT', clientId: c.id });
     }
     if (s.candidates.length && s.cash > s.candidates[0].askingSalary * 3 + 2500) {
-      game.dispatch({ type: 'HIRE', candidateId: s.candidates[0].therapist.id });
+      dispatch({ type: 'HIRE', candidateId: s.candidates[0].therapist.id });
     }
     if (s.flags.philosophyAvailable && !s.philosophy) {
-      game.dispatch({ type: 'CHOOSE_PHILOSOPHY', philosophy: 'trauma_informed' });
+      dispatch({ type: 'CHOOSE_PHILOSOPHY', philosophy: 'trauma_informed' });
     }
-    autofillSchedule(s, game.rng);
-    game.dispatch({ type: 'START_DAY' });
+    dispatch({ type: 'AUTOFILL_SCHEDULE' });
+    dispatch({ type: 'START_DAY' });
   } else if (s.dayPhase === 'running') {
     if (s.pendingEvents.length) resolveEvents();
-    else game.dispatch({ type: 'TICK', dtMinutes: 10 });
+    else dispatch({ type: 'TICK', dtMinutes: 10 });
   } else {
     if (s.day % 14 === 0) {
       const staff = activeTherapists(s);
@@ -165,7 +182,7 @@ while (s.day <= days && !s.ended && guard++ < days * 5000) {
         ),
       );
     }
-    game.dispatch({ type: 'END_DAY' });
+    dispatch({ type: 'END_DAY' });
     resolveEvents();
   }
 }
@@ -204,5 +221,15 @@ for (const c of s.clients.filter((x) => x.status === 'active').slice(0, 10)) {
       `${c.atRisk ? brick(' · at risk') : ''}`,
   );
   console.log(dim(`     ${c.backstory}`));
+}
+
+if (recorder) {
+  const log = recorder.snapshot(s, Date.now());
+  writeFileSync(recordTo, serializeReplay(log));
+  const actions = log.entries.reduce((a, e) => a + (e.n ?? 1), 0);
+  console.log(
+    bold(`\n  Recorded ${actions} actions in ${log.entries.length} entries → ${recordTo}`),
+  );
+  console.log(dim(`  Check it reproduces: bun run replay ${recordTo} --verify`));
 }
 console.log('');

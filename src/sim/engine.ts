@@ -126,6 +126,7 @@ export function createInitialState(opts: NewGameOptions = {}): GameState {
     version: SAVE_VERSION,
     seed,
     rng: rng.state,
+    idSeq: 0,
     day: 1,
     minute: 0,
     dayPhase: 'morning_brief',
@@ -244,8 +245,13 @@ function applyLegacy(state: GameState, rng: Rng): void {
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-let logCounter = 0;
-
+/**
+ * Log and toast ids come off `state.idSeq` rather than a module-level counter.
+ * The counter version was invisible until you tried to diff two same-seed runs:
+ * everything matched except the ids, because the second game inherited whatever
+ * the first had counted to. Keeping it on the state makes a run reproducible
+ * down to the last string — which is the whole premise of src/sim/replay.ts.
+ */
 export function pushLog(
   state: GameState,
   text: string,
@@ -253,7 +259,7 @@ export function pushLog(
   tone: LogEntry['tone'] = 'neutral',
 ): void {
   state.log.unshift({
-    id: `log_${state.day}_${logCounter++}`,
+    id: `log_${state.day}_${state.idSeq++}`,
     day: state.day,
     minute: state.minute,
     text,
@@ -263,14 +269,12 @@ export function pushLog(
   if (state.log.length > 400) state.log.length = 400;
 }
 
-let toastCounter = 0;
-
 export function pushToast(
   state: GameState,
   bus: EventBus,
   toast: Omit<Toast, 'id' | 'createdAt'>,
 ): void {
-  const t: Toast = { ...toast, id: `toast_${toastCounter++}`, createdAt: state.day * 10000 + state.minute };
+  const t: Toast = { ...toast, id: `toast_${state.idSeq++}`, createdAt: state.day * 10000 + state.minute };
   state.toasts.push(t);
   if (state.toasts.length > 6) state.toasts.shift();
   bus.emit('TOAST', { toast: t });
@@ -521,6 +525,10 @@ export class Game {
         break;
       case 'SET_SETTING':
         (s.settings as unknown as Record<string, unknown>)[action.key] = action.value;
+        break;
+      case 'SET_FLAG':
+        if (action.value === null) delete s.flags[action.key];
+        else s.flags[action.key] = action.value;
         break;
       case 'ADVANCE_TUTORIAL': {
         const wasRunning = s.tutorialStep >= 0;
@@ -1068,7 +1076,6 @@ export class Game {
     s.paused = true;
     s.schedule = [];
     s.lastDayResults = [];
-    logCounter = 0;
 
     // Quarter boundary every 28 days.
     if ((s.day - 1) % 28 === 0 && s.day > 1) {

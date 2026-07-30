@@ -1,17 +1,43 @@
 /**
- * A headless "reasonable player" that drives the sim without any UI.
+ * Headless players that drive the sim without any UI.
  *
- * This is the backbone of the balance harness: if a competent-but-not-optimal
- * player can't keep a practice healthy for 200 days, the curves are wrong.
+ * Two policies live here. `reasonable` is the backbone of the balance harness:
+ * a competent-but-not-optimal player, and if they can't keep a practice healthy
+ * for 200 days the curves are wrong. `adversarial` is the other end of the same
+ * measurement — an overwhelmed beginner who says yes to everyone and asks the
+ * team how they're doing never. Without it the harness only ever measures the
+ * good half of the difficulty curve.
+ *
+ * Every run also collects a pacing trace, because the two event bugs found
+ * during the build were both invisible in the statistics and obvious in the
+ * first minute of a narrated run.
  */
 import { EventBus } from '../src/sim/bus';
-import { DIFFICULTIES, SLOTS_PER_DAY } from '../src/sim/balance';
+import {
+  EVENT_COOLDOWN_DAYS,
+  FOCUSES,
+  MAX_CLIENT_EVENTS_PER_DAY,
+  SLOTS_PER_DAY,
+} from '../src/sim/balance';
 import { Game, capacity, dailyExpenses, therapistSlots } from '../src/sim/engine';
 import { activeTherapists, meetsRequirement } from '../src/sim/eventsys';
-import { buildTechniqueCards } from '../src/sim/session';
-import { autofillSchedule } from '../src/sim/scheduler';
+import { specializationFit } from '../src/sim/quality';
+import { activeClients, autofillSchedule, bookableTherapists, clientBooked, slotTaken } from '../src/sim/scheduler';
 import { PROGRAMS, UPGRADES, TRAININGS, upgradeById } from '../src/content';
-import type { Difficulty, GameState, ProgramId } from '../src/sim/types';
+import type {
+  Client,
+  Difficulty,
+  GameState,
+  PendingEvent,
+  ProgramId,
+  SessionFocus,
+} from '../src/sim/types';
+
+/**
+ * `reasonable` plays competently at the given `--skill`. `adversarial` ignores
+ * skill entirely: it is a fixed set of plausible mistakes, not a dice roll.
+ */
+export type AutoplayPolicy = 'reasonable' | 'adversarial';
 
 export interface AutoplayOptions {
   seed: number;
@@ -21,11 +47,70 @@ export interface AutoplayOptions {
   skill?: number;
   /** Collect a per-day trace. */
   trace?: boolean;
+  /** Which player to simulate. Defaults to the reasonable one. */
+  policy?: AutoplayPolicy;
+}
+
+/**
+ * What a pacing violation is *about*.
+ *
+ * `cooldown_same_subject` is the one a player can actually feel: the same
+ * dilemma landing on the same person (or on the practice) twice inside the
+ * window. `cooldown_global` is the same event *template* reused for somebody
+ * else inside the window — which is what a per-client arc necessarily does when
+ * two clients reach the same chapter in the same fortnight, and is not
+ * self-evidently a defect. They are counted apart because triaging them
+ * together is useless: the interesting set is small and the other one is not.
+ */
+export type PacingKind =
+  | 'cooldown_same_subject'
+  | 'cooldown_global'
+  | 'modal_cap'
+  | 'beat_repeat'
+  | 'once_repeat';
+
+/** A per-run pacing rule the sim is supposed to hold, and didn't. */
+export interface PacingViolation {
+  kind: PacingKind;
+  /** The event or arc-beat id at fault, so the sweep can name repeat offenders. */
+  id: string;
+  /**
+   * Who the event was about — a client id, a therapist id, or `practice` for
+   * the scopes that have no individual subject. Without this a cooldown report
+   * cannot distinguish "A.M. was asked the same question twice this week" from
+   * "two different clients reached the same chapter", and those are different
+   * bugs (one of which may be no bug at all).
+   */
+  subject: string;
+  /** Human-readable, and specific enough to reproduce. */
+  detail: string;
+  /** The days involved, so the reader knows where to look. */
+  days: number[];
+}
+
+/** Practice- and day-scope events have no individual subject; the practice is the subject. */
+export const PACING_NO_SUBJECT = 'practice';
+
+export interface PacingReport {
+  violations: PacingViolation[];
+  /** Blocking modals raised, excluding the in-session technique card. */
+  modals: number;
+  /** Days on which the player was interrupted at all. */
+  interruptedDays: number;
+  maxModalsInADay: number;
+  busiestDay: number;
 }
 
 export interface RunReport {
   seed: number;
   difficulty: Difficulty;
+  policy: AutoplayPolicy;
+  /**
+   * The skill actually used, defaults resolved. Part of the run's identity: two
+   * runs with the same seed and different skill are different games, so the
+   * report cannot name a reproducible run without it.
+   */
+  skill: number;
   days: number;
   ended?: string;
   final: {
@@ -75,6 +160,7 @@ export interface RunReport {
     level: number;
     act: number;
   }[];
+  pacing: PacingReport;
   /** Interesting flags for the report. */
   notes: string[];
 }
@@ -96,17 +182,22 @@ export function playRun(opts: AutoplayOptions): RunReport {
   );
   const s = game.state;
   const skill = opts.skill ?? 0.8;
+  const policy: AutoplayPolicy = opts.policy ?? 'reasonable';
 
   const grades: Record<string, number> = {};
   const qualityHistogram = new Array(10).fill(0);
   const daily: RunReport['daily'] = [];
   const notes: string[] = [];
+  const pacing = new PacingWatch();
 
   bus.on('SESSION_COMPLETED', ({ result }) => {
     grades[result.grade] = (grades[result.grade] ?? 0) + 1;
     const b = Math.min(9, Math.floor(result.quality * 10));
     qualityHistogram[b] += 1;
+    if (result.beat) pacing.sawBeat(s.day, result.clientId, result.beat.id);
   });
+
+  const resolve = () => resolveAllEvents(game, skill, policy, pacing);
 
   let guard = 0;
   while (s.day <= opts.days && !s.ended && guard < opts.days * 5000) {
@@ -114,15 +205,23 @@ export function playRun(opts: AutoplayOptions): RunReport {
 
     // ── Morning ────────────────────────────────────────────────────────────
     if (s.dayPhase === 'morning_brief') {
-      resolveAllEvents(game, skill);
-      acceptClients(game, skill);
-      maybeHire(game, skill);
-      maybeBuy(game, skill);
-      maybeTrain(game, skill);
-      maybeProgram(game, skill);
-      maybePhilosophy(game);
-      maybeMentor(game);
-      autofillSchedule(s, game.rng);
+      resolve();
+      if (policy === 'adversarial') {
+        acceptEverybody(game);
+        panicHire(game);
+        growthOnlyBuy(game);
+        maybePhilosophy(game);
+        overbook(game);
+      } else {
+        acceptClients(game, skill);
+        maybeHire(game, skill);
+        maybeBuy(game, skill);
+        maybeTrain(game, skill);
+        maybeProgram(game, skill);
+        maybePhilosophy(game);
+        maybeMentor(game);
+        autofillSchedule(s, game.rng);
+      }
       game.dispatch({ type: 'START_DAY' });
       continue;
     }
@@ -130,7 +229,7 @@ export function playRun(opts: AutoplayOptions): RunReport {
     // ── During the day ─────────────────────────────────────────────────────
     if (s.dayPhase === 'running') {
       if (s.pendingEvents.length) {
-        resolveAllEvents(game, skill);
+        resolve();
         continue;
       }
       game.dispatch({ type: 'TICK', dtMinutes: 10 });
@@ -159,7 +258,7 @@ export function playRun(opts: AutoplayOptions): RunReport {
         act: s.act,
       });
       game.dispatch({ type: 'END_DAY' });
-      resolveAllEvents(game, skill);
+      resolve();
       continue;
     }
 
@@ -172,6 +271,8 @@ export function playRun(opts: AutoplayOptions): RunReport {
   return {
     seed: opts.seed,
     difficulty: opts.difficulty,
+    policy,
+    skill,
     days: Math.min(s.day, opts.days),
     ended: s.ended?.kind,
     final: {
@@ -206,47 +307,225 @@ export function playRun(opts: AutoplayOptions): RunReport {
     grades,
     qualityHistogram,
     daily: opts.trace ? daily : daily.filter((d) => d.day % 5 === 0 || d.day === 1),
+    pacing: pacing.report(),
     notes,
   };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Pacing — the assertions the statistical report cannot make
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Watches every blocking modal a run raises and checks it against what
+ * `src/sim/eventsys.ts` actually promises:
+ *
+ *   · a non-`once` event may not come round again inside its scope's cooldown.
+ *     `pickEvent` enforces this for random draws; scripted `raiseEvent` /
+ *     `raiseEventById` calls deliberately do not check it (they *set* it, so a
+ *     follow-up cannot be echoed by the next random draw). So every cooldown
+ *     violation here is a scripted raise — and the two are recorded apart,
+ *     because `cooldown_global` for a *different* subject is usually just an
+ *     arc beat reaching two clients in the same fortnight, while
+ *     `cooldown_same_subject` is a repeat the player sits through twice;
+ *   · at most `MAX_CLIENT_EVENTS_PER_DAY` client-scope interruptions during the
+ *     working day, the cap `Game.completeSession` counts against;
+ *   · an arc beat is played at most once per client (`c.playedBeats`);
+ *   · a `once` event is exactly that.
+ *
+ * The in-session technique card is not counted: it is the core loop, not an
+ * interruption, and it is supposed to appear every single session.
+ */
+class PacingWatch {
+  private readonly violations: PacingViolation[] = [];
+  private readonly lastRaisedOn: Record<string, number> = {};
+  /** Keyed `id subject` — the same event landing on the same person again. */
+  private readonly lastRaisedOnSubject: Record<string, number> = {};
+  private readonly onceCount: Record<string, number> = {};
+  private readonly seenInstances = new Set<string>();
+  private readonly modalsByDay = new Map<number, number>();
+  private readonly clientEventsByDay = new Map<number, number>();
+  private readonly beatsByClient = new Map<string, Set<string>>();
+
+  sawEvent(p: PendingEvent, s: GameState): void {
+    if (p.def.scope === 'session') return;
+    if (this.seenInstances.has(p.instanceId)) return;
+    this.seenInstances.add(p.instanceId);
+
+    const { id, scope } = p.def;
+    const day = s.day;
+    const cooldown = EVENT_COOLDOWN_DAYS[scope] ?? 0;
+    // Who the event is *about* is decided by its scope, not by whatever context
+    // happened to be on the raise: `ev_practice_insurance_renegotiation` carries
+    // the clientId whose authorisation ran out, but it is scoped `practice`, so
+    // the practice is the subject — two renegotiations a fortnight apart are a
+    // repeat the player sits through twice, whoever the incidental client was.
+    const subject =
+      scope === 'client'
+        ? (p.clientId ?? PACING_NO_SUBJECT)
+        : scope === 'staff'
+          ? (p.therapistId ?? PACING_NO_SUBJECT)
+          : PACING_NO_SUBJECT;
+    const who = subject === PACING_NO_SUBJECT ? 'the practice' : subject;
+    // The day the *sim* thinks this went up, not the day we happened to see it.
+    // Half of `nextDay()` runs before the date rolls over, so an event raised
+    // overnight is stamped a day earlier than the morning we resolve it — and an
+    // off-by-one here invents violations that never happened.
+    const raisedOn = s.eventCooldowns?.[id] !== undefined ? s.eventCooldowns[id] - cooldown : day;
+
+    this.modalsByDay.set(day, (this.modalsByDay.get(day) ?? 0) + 1);
+
+    const subjectKey = `${id} ${subject}`;
+
+    if (p.def.once) {
+      const n = (this.onceCount[id] = (this.onceCount[id] ?? 0) + 1);
+      if (n > 1) {
+        this.violations.push({
+          kind: 'once_repeat',
+          id,
+          subject,
+          detail: `"${id}" is marked once-per-run but has now fired ${n}×`,
+          days: [this.lastRaisedOn[id] ?? raisedOn, raisedOn],
+        });
+      }
+    } else {
+      // Same subject first: it is the strictly worse case, and reporting a
+      // same-subject repeat as merely "global" would hide the one that matters.
+      const prevSubject = this.lastRaisedOnSubject[subjectKey];
+      const prev = this.lastRaisedOn[id];
+      if (prevSubject !== undefined && raisedOn - prevSubject < cooldown) {
+        this.violations.push({
+          kind: 'cooldown_same_subject',
+          id,
+          subject,
+          detail:
+            `"${id}" (${scope}, ${cooldown}d cooldown) came round again for ${who} ` +
+            `after ${raisedOn - prevSubject}d`,
+          days: [prevSubject, raisedOn],
+        });
+      } else if (prev !== undefined && raisedOn - prev < cooldown) {
+        this.violations.push({
+          kind: 'cooldown_global',
+          id,
+          subject,
+          detail:
+            `"${id}" (${scope}, ${cooldown}d cooldown) was reused after ${raisedOn - prev}d, ` +
+            `for a different subject (${who})`,
+          days: [prev, raisedOn],
+        });
+      }
+    }
+    this.lastRaisedOn[id] = raisedOn;
+    this.lastRaisedOnSubject[subjectKey] = raisedOn;
+
+    // The cap governs the client events drawn off the back of a session, so only
+    // count the ones raised while the day is actually running.
+    if (scope === 'client' && s.dayPhase === 'running') {
+      const n = (this.clientEventsByDay.get(day) ?? 0) + 1;
+      this.clientEventsByDay.set(day, n);
+      if (n > MAX_CLIENT_EVENTS_PER_DAY) {
+        this.violations.push({
+          kind: 'modal_cap',
+          id,
+          subject,
+          detail: `${n} client-scope modals during day ${day} — the cap is ${MAX_CLIENT_EVENTS_PER_DAY} ("${id}" was the ${n}th)`,
+          days: [day],
+        });
+      }
+    }
+  }
+
+  sawBeat(day: number, clientId: string, beatId: string): void {
+    let seen = this.beatsByClient.get(clientId);
+    if (!seen) this.beatsByClient.set(clientId, (seen = new Set()));
+    if (seen.has(beatId)) {
+      this.violations.push({
+        kind: 'beat_repeat',
+        id: beatId,
+        subject: clientId,
+        detail: `arc beat "${beatId}" played twice for the same client (${clientId})`,
+        days: [day],
+      });
+    }
+    seen.add(beatId);
+  }
+
+  report(): PacingReport {
+    let busiestDay = 0;
+    let maxModalsInADay = 0;
+    let modals = 0;
+    for (const [day, n] of this.modalsByDay) {
+      modals += n;
+      if (n > maxModalsInADay) {
+        maxModalsInADay = n;
+        busiestDay = day;
+      }
+    }
+    return {
+      violations: this.violations,
+      modals,
+      interruptedDays: this.modalsByDay.size,
+      maxModalsInADay,
+      busiestDay,
+    };
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Policy: how the simulated player decides
 // ─────────────────────────────────────────────────────────────────────────────
 
-function resolveAllEvents(game: Game, skill: number): void {
+/** How appealing a technique card looks. The adversarial player reads it upside down. */
+function cardScore(c: { preview: { qualityHint: string; regressionChance: number } }): number {
+  const base =
+    c.preview.qualityHint === 'strong'
+      ? 3
+      : c.preview.qualityHint === 'solid'
+        ? 2
+        : c.preview.qualityHint === 'risky'
+          ? 1
+          : 0;
+  return base - c.preview.regressionChance * 3;
+}
+
+function resolveAllEvents(
+  game: Game,
+  skill: number,
+  policy: AutoplayPolicy,
+  pacing: PacingWatch,
+): void {
   const s = game.state;
   let guard = 0;
   while (s.pendingEvents.length && guard++ < 40) {
     const p = s.pendingEvents[0];
+    pacing.sawEvent(p, s);
+
     if (p.techniqueCards?.length) {
-      const sess = s.schedule.find((x) => x.id === p.sessionId);
       const cards = p.techniqueCards;
       let pick = cards[0];
-      if (game.rng.next() < skill) {
-        // Competent play: best hint, penalised by regression risk.
-        const score = (c: (typeof cards)[number]) => {
-          const base =
-            c.preview.qualityHint === 'strong'
-              ? 3
-              : c.preview.qualityHint === 'solid'
-                ? 2
-                : c.preview.qualityHint === 'risky'
-                  ? 1
-                  : 0;
-          return base - c.preview.regressionChance * 3;
-        };
-        pick = [...cards].sort((a, b) => score(b) - score(a))[0];
+      if (policy === 'adversarial') {
+        // Reach for the shiny one: the activating technique, the deep work, the
+        // card with a warning on it. Nobody sets out to destabilise a client.
+        pick = [...cards].sort((a, b) => cardScore(a) - cardScore(b))[0];
+      } else if (game.rng.next() < skill) {
+        pick = [...cards].sort((a, b) => cardScore(b) - cardScore(a))[0];
       } else {
         pick = game.rng.pick(cards);
       }
       game.dispatch({ type: 'CHOOSE_TECHNIQUE', instanceId: p.instanceId, techniqueId: pick.techniqueId });
       continue;
     }
-    // Ordinary event: prefer the choice with the best net effect, weighted by skill.
+
     const choices = p.choices;
     let choice = choices[0];
-    if (game.rng.next() < skill) {
+    if (policy === 'adversarial') {
+      // Cash today and one more referral. Morale, trust and the alliance are all
+      // problems for a version of you who has more time.
+      const shortTerm = (c: (typeof choices)[number]) =>
+        (c.effects.cash ?? 0) / 300 + (c.effects.reputation ?? 0) * 0.25 + (c.effects.spawnReferral ? 0.4 : 0);
+      choice = [...choices].sort((a, b) => shortTerm(b) - shortTerm(a))[0];
+    } else if (game.rng.next() < skill) {
+      // Ordinary event: prefer the choice with the best net effect.
       const score = (c: (typeof choices)[number]) => {
         const e = c.effects;
         return (
@@ -291,9 +570,9 @@ function maybeHire(game: Game, skill: number): void {
   const staff = activeTherapists(s);
   if (staff.length >= therapistSlots(s)) return;
 
-  const activeClients = s.clients.filter((c) => c.status === 'active').length;
+  const activeClientCount = s.clients.filter((c) => c.status === 'active').length;
   const capacityPerTherapist = 6;
-  const stretched = activeClients > staff.length * capacityPerTherapist * 0.8;
+  const stretched = activeClientCount > staff.length * capacityPerTherapist * 0.8;
   const waitlist = s.clients.filter((c) => c.status === 'waitlist').length;
   if (!stretched && waitlist < 3 && staff.length > 1) return;
 
@@ -388,4 +667,108 @@ function maybeMentor(game: Game): void {
   const mentees = staff.filter((t) => !t.mentorId && t.level < 4);
   if (!mentors.length || !mentees.length) return;
   game.dispatch({ type: 'SET_MENTORSHIP', mentorId: mentors[0].id, menteeId: mentees[0].id });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The adversarial player
+//
+// Not a button-masher — a person in their first month with a full inbox. Every
+// decision below is a mistake someone actually makes: saying yes to everyone,
+// handing the case to whoever answers the phone, pushing a client who isn't
+// steady enough to be pushed, and never once asking how the team is holding up.
+// Deliberately absent: mentorship, training, the quiet quality upgrades, and
+// programs. Not because they'd hurt — because nobody drowning launches a
+// research study.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function acceptEverybody(game: Game): void {
+  const s = game.state;
+  // Nobody gets turned away. The engine's own capacity check is the only brake,
+  // and hitting it is the point — this is what forty clients you cannot see
+  // costs you.
+  for (const c of s.clients.filter((x) => x.status === 'waitlist')) {
+    game.dispatch({ type: 'ACCEPT_CLIENT', clientId: c.id });
+  }
+}
+
+function panicHire(game: Game): void {
+  const s = game.state;
+  if (!s.candidates.length) return;
+  if (activeTherapists(s).length >= therapistSlots(s)) return;
+  if (!s.clients.some((c) => c.status === 'waitlist')) return;
+  // Cheapest body available, hired against the waitlist rather than the ledger.
+  const cheapest = [...s.candidates].sort((a, b) => a.askingSalary - b.askingSalary)[0];
+  if (s.cash < cheapest.askingSalary * 2) return;
+  game.dispatch({ type: 'HIRE', candidateId: cheapest.therapist.id });
+}
+
+function growthOnlyBuy(game: Game): void {
+  const s = game.state;
+  // Only the upgrades that make the number go up. A better waiting room and a
+  // room you can hold supervision in never look urgent enough to buy this week.
+  const owned = new Set(s.upgrades);
+  const growth = [...UPGRADES]
+    .filter((u) => (u.mods?.capacity ?? 0) > 0 || (u.mods?.referralMult ?? 1) > 1)
+    .sort((a, b) => a.cost - b.cost);
+  for (const u of growth) {
+    if (owned.has(u.id) || !meetsRequirement(s, u.requires)) continue;
+    if (s.cash < u.cost) continue; // no runway check whatsoever
+    game.dispatch({ type: 'BUY_UPGRADE', upgradeId: u.id });
+    return;
+  }
+}
+
+/**
+ * The two beginner focus errors, each chosen in the situation where it costs the
+ * most: going toward the hard thing with someone who isn't steady enough to be
+ * taken there, and holding someone in a stabilising pattern for weeks after they
+ * were ready to work.
+ */
+function worstFocus(c: Client): SessionFocus {
+  return c.stability < FOCUSES.process.safeStability ? 'process' : 'stabilize';
+}
+
+function overbook(game: Game): void {
+  const s = game.state;
+  const staff = bookableTherapists(s);
+  if (!staff.length) return;
+
+  const load: Record<string, number> = {};
+  for (const x of s.schedule) {
+    if (x.status === 'cancelled') continue;
+    load[x.therapistId] = (load[x.therapistId] ?? 0) + 1;
+  }
+
+  // No priority order: whoever came in first gets seen first, so the client
+  // quietly running out of patience waits behind the easy one.
+  for (const c of activeClients(s)) {
+    if (clientBooked(s, c.id)) continue;
+
+    // Worst specialisation match wins, and near-ties break toward whoever is
+    // already carrying the most — the "she's so good with the hard ones" trap
+    // that ends in a sabbatical.
+    // Small enough that mismatch stays the dominant term; big enough that two
+    // equally wrong therapists resolve toward the one already drowning.
+    const appeal = (t: (typeof staff)[number]) => 1 - specializationFit(t, c) + (load[t.id] ?? 0) * 0.02;
+    const ranked = [...staff].sort((a, b) => appeal(b) - appeal(a));
+    for (const t of ranked) {
+      let slot = -1;
+      for (let i = 0; i < SLOTS_PER_DAY; i++) {
+        if (!slotTaken(s, t.id, i)) {
+          slot = i;
+          break;
+        }
+      }
+      if (slot < 0) continue; // this one is genuinely full; the next one isn't
+      game.dispatch({
+        type: 'BOOK_SESSION',
+        clientId: c.id,
+        therapistId: t.id,
+        slot,
+        focus: worstFocus(c),
+      });
+      load[t.id] = (load[t.id] ?? 0) + 1;
+      break;
+    }
+  }
 }

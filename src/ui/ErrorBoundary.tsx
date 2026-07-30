@@ -1,13 +1,18 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 import { downloadSave, listAutosaves, loadAutosave } from '../sim/save';
-import { adoptState, useStore } from '../store';
+import { adoptState, downloadReplayLog, useStore } from '../store';
 
 /**
  * A render error anywhere in the tree would otherwise unmount the whole game,
  * which reads to a player as "it froze". The simulation state is intact when
  * this happens — it lives outside React — so the honest thing to do is say what
- * broke and offer the three recoveries that actually work: carry on, roll back
- * to an autosave, or export the save so the run is not lost.
+ * broke and offer the recoveries that actually work: carry on, roll back to an
+ * autosave, or export the run.
+ *
+ * The export is two files, and they answer different questions. The save is
+ * where the run *is*, so it can be handed back to the player. The replay log is
+ * how it *got there* — every action from day one — so whoever fixes this can
+ * reproduce the crash on their own machine instead of guessing.
  */
 interface State {
   error: Error | null;
@@ -40,6 +45,7 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, State> {
 
   private exportRun = () => {
     downloadSave(useStore.getState().game.state);
+    downloadReplayLog();
   };
 
   render(): ReactNode {
@@ -72,13 +78,14 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, State> {
               </button>
             )}
             <button className="btn btn-ghost" onClick={this.exportRun}>
-              Export the save
+              Export the run
             </button>
           </div>
 
           <p className="text-[0.72rem] text-ink-faint mt-3">
-            If it breaks again in the same place, the exported file plus the message above is
-            everything needed to reproduce it — the simulation is deterministic.
+            Exporting saves two files: the practice as it stands, and a log of every action that
+            built it. The simulation is deterministic, so that log plus the message above replays
+            this exact moment on someone else's machine.
           </p>
         </div>
       </div>

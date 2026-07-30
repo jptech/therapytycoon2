@@ -63,30 +63,30 @@ does not. A single multiplier on referral volume and self-pay rates, drifting ov
 
 ## 2. Balance gaps the harness cannot currently see
 
-### ⚑ An adversarial autoplay policy — **M**
+### ~~An adversarial autoplay policy~~ — **done**
 
-**Why.** `tools/autoplay.ts` models a *reasonable* player at varying competence, but even at
-`--skill 0` it never does the genuinely wrong thing — it will not assign a CBT therapist to an
-acute trauma case, work an exhausted therapist, or accept forty clients it cannot see. As a
-result **"poor" sessions are ~0% in every sweep**, which almost certainly understates how bad a
-real first hour feels. The low end of the difficulty curve is therefore unmeasured.
+`--policy adversarial` in `tools/autoplay.ts` plays like an overwhelmed beginner rather than a
+random button-masher: accepts every referral, books by *worst* specialisation match, works past
+the energy reserve, processes trauma on unstable clients, and never mentors anyone. The floor it
+measures is tabulated in docs/BALANCE.md — poor sessions go 0.0% → ~7%, mixed ~3% → ~65%, and
+departures and burnouts are finally exercised at scale (which also closes the old "poaching and
+departures are untested" item).
 
-**Where to start.** `tools/autoplay.ts`; add a `--policy adversarial` branch that deliberately
-mismatches specialisations, over-accepts against capacity, and books past the energy reserve.
+It surfaced three things worth someone's attention, documented in docs/BALANCE.md and not yet
+addressed: **bad practice is not punished financially** (adversarial Cozy banks $393k against the
+reasonable player's $130k, on session volume), **cures track session count more than quality**,
+and **burnout has an upside** — a sabbatical returns a therapist with `SABBATICAL_MAX_ENERGY_BONUS`
+more capacity than they left with, so running the team into the ground is a viable strategy. The
+first is the one that undercuts the design.
 
-**Done looks like.** A sweep that produces a meaningful share of `mixed` and `poor` sessions, and
-a documented floor for how bad a run can get in each difficulty.
+### ~~The harness smooths pacing problems away~~ — **done**
 
-### ⚑ The harness smooths pacing problems away — **S**
+`playRun` returns a `PacingReport` and the sweep prints a **Pacing** section: cooldown re-fires
+split into same-subject and different-subject, the client-scope modal cap, repeated arc beats, and
+`once` events firing twice. `--strict` exits nonzero. Every example line prints the exact
+`bun run balance` command that reproduces it.
 
-**Why.** Both event bugs found during the build — the same dilemma firing three mornings running,
-and a modal rate that would have hit ~5/day late game — were invisible in the statistical report
-and obvious in the first minute of `tools/playtest.ts`. Anything that produces *moments* rather
-than *numbers* is currently unguarded.
-
-**Where to start.** `tools/balance.ts`; add per-run frequency assertions — no non-`once` event
-twice within `EVENT_COOLDOWN_DAYS`, modals per day under a ceiling, no arc beat repeating for one
-client — and fail the sweep loudly.
+It found a live defect on its first run — see "Scripted event raises ignore the cooldown" below.
 
 ### Standard no longer collapses at all — **S**
 
@@ -103,11 +103,29 @@ Every Cozy run owns all 26 upgrades and runs 3 programs by day 200. Either add a
 expensive top tier that even a rich practice must choose between, or accept it as correct for the
 mode and say so in the UI. Currently it is unstated either way.
 
-### Poaching and departures are untested at scale — **S**
+### ⚑ Scripted event raises ignore the cooldown — **S**
 
-Covered by unit tests, but the harness produces ~0.05 departures per run because the bot keeps
-morale healthy. A "neglectful" policy would exercise the retention game properly. Folds naturally
-into the adversarial policy above.
+Found by the new pacing assertions, on their first run. `pickEvent` consults
+`state.eventCooldowns`, so a *random* draw can never land inside the window — but `raiseEvent`
+only ever *sets* the cooldown, so every scripted raise walks straight through it. 120 of 120
+reasonable 200-day runs violate. Two of the offenders are real and small:
+
+- **`ev_practice_insurance_renegotiation` is scoped wrong**, not raised wrong. `engine.ts` raises
+  it per client when that client's authorisation runs out, but it is authored `scope: 'practice'`,
+  so a per-client trigger inherits a practice-wide 20-day window and re-fires the same morning.
+- **`ev_staff_burnout_aftermath` re-fires for the same therapist** inside its 16-day window,
+  because `SABBATICAL_DAYS` is 2–4.
+
+The rest is one event template being reused for *different* people, which is what a per-client arc
+beat necessarily does and is not a defect — which is why the assertion splits same-subject from
+different-subject. **Do not "fix" this by having `raiseEvent` return early on cooldown**: arc beats
+and follow-ups reach the system through that path, and a silent `return undefined` deletes them.
+See the long note in docs/BALANCE.md before touching `eventsys.ts`.
+
+### ~~Poaching and departures are untested at scale~~ — **done**
+
+Folded into the adversarial policy, as predicted: ~14–18 departures and ~130 burnouts per
+adversarial run against ~0 for the reasonable player.
 
 ### The `--skill` axis is one scalar — **S**
 
@@ -203,11 +221,21 @@ clipped by an ancestor's `overflow`, a tooltip running off the viewport, a panel
 HUD, a day that started running under a tutorial coach-mark, and a freeze whose root cause is
 still unconfirmed. All five are the kind a browser-driving test catches on the first run.
 
-### ⚑ No replay tooling — **S**
+### ~~No replay tooling~~ — **done**
 
-The sim is deterministic and `GameAction` is serialisable, so recording an action log and
-replaying it is nearly free — and would make any bug report exactly reproducible. This is the
-highest-leverage debugging investment available.
+`src/sim/replay.ts` records every dispatch of a run and fingerprints the state at each day
+boundary; `bun run replay <log> --verify` reproduces it or names the day it drifted. The crash
+screen exports one alongside the save, `__tt.saveReplay()` writes one on demand, and
+`bun run playtest --record <file>` produces one headlessly.
+
+Two follow-ups, neither urgent:
+
+- **A log from a resumed save embeds the whole save.** There is no seed that reproduces a mid-run
+  state, so `ReplayOrigin` carries one. Correct, but it makes those logs an order of magnitude
+  larger than a fresh run's. Compressing or referencing the sibling save file would fix it.
+- **The watchdog's emergency `pendingEvents = []` is still outside the action stream.** A replay
+  that crosses one will diverge there. That is arguably right — it only fires after a bug — but
+  the divergence report should say so rather than looking like drift.
 
 ### Save migrations are untested against real old saves — **S**
 
@@ -238,17 +266,16 @@ error boundary catches render throws (which present identically). `src/sim/stall
 the class. **If it recurs, the console names the pending event or the boundary shows the stack** —
 that will pin it in one look, and the fix should then replace the watchdog rather than lean on it.
 
-### The `state.flags` write-through pattern — **S**
+### ~~The `state.flags` write-through pattern~~ — **done**
 
-Three UI surfaces mutate a flag directly and dispatch a no-op to force a publish, because those
-transient flags have no dedicated action (`showQuarterReview`, `autoSchedule`, `autoTechnique`).
-Each site is commented. If a fourth appears, add real actions instead.
+`SET_FLAG` replaced it. Forced by replay: a flag written outside the action stream is missing from
+a recorded log, so a run where somebody dismissed the quarter review no longer reproduced.
 
-### Log entry ids are not deterministic — **S**
+### ~~Log entry ids are not deterministic~~ — **done**
 
-They come from a process-global counter rather than the rng, so two same-seed games in one
-process produce identical state *except* for log ids. Harmless today; it would break a
-whole-state diff. Noted by the test suite.
+Log and toast ids now come off `state.idSeq`, so two same-seed games in one process are
+byte-identical and a whole-state diff is a valid check. Save v6 migrates old saves by resuming the
+counter past the highest id already in their log.
 
 ---
 

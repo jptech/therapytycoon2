@@ -753,6 +753,13 @@ export interface GameState {
   version: number;
   seed: number;
   rng: RngState;
+  /**
+   * Monotonic counter for ids the sim mints outside the rng stream — log lines
+   * and toasts. It lives on the state rather than in a module so that two
+   * same-seed games in one process are byte-identical, which is what lets a
+   * replay be verified by diffing whole states.
+   */
+  idSeq: number;
   /** 1-based day counter. */
   day: number;
   /** Minutes elapsed within the working day (0 = 8:00 AM). */
@@ -872,6 +879,14 @@ export type GameAction =
   | { type: 'REMOVE_POLICY'; policyId: string }
   | { type: 'DISMISS_TOAST'; toastId: string }
   | { type: 'SET_SETTING'; key: keyof GameSettings; value: boolean | number }
+  /**
+   * Sets a transient presentation flag (`showQuarterReview`, `autoSchedule`…).
+   * These used to be written straight onto `state.flags` by the panels that own
+   * them, which is invisible to a recorded action log — so a replay of a run
+   * where someone closed the quarter review drifted from the run itself.
+   * `null` clears the flag.
+   */
+  | { type: 'SET_FLAG'; key: string; value: number | string | boolean | null }
   | { type: 'ADVANCE_TUTORIAL'; step?: number }
   | { type: 'SET_PRACTICE_NAME'; name: string }
   | { type: 'RETIRE_RUN' };

@@ -5,10 +5,13 @@
  *   bun run tools/balance.ts                       # 60 runs × 200 days, standard
  *   bun run tools/balance.ts --runs 200 --days 260
  *   bun run tools/balance.ts --difficulty cozy,standard,challenge
+ *   bun run tools/balance.ts --policy adversarial  # measure the floor, not the curve
+ *   bun run tools/balance.ts --seed 8919           # one exact run, for reproducing a report line
+ *   bun run tools/balance.ts --strict              # exit 1 on any pacing violation
  *   bun run tools/balance.ts --csv balance-out
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { playRun, type RunReport } from './autoplay';
+import { playRun, type AutoplayPolicy, type RunReport } from './autoplay';
 import type { Difficulty } from '../src/sim/types';
 
 interface Args {
@@ -17,6 +20,14 @@ interface Args {
   difficulties: Difficulty[];
   csvDir?: string;
   skills: number[];
+  policies: AutoplayPolicy[];
+  /**
+   * Explicit seeds, replacing the generated sweep. This is what makes a line in
+   * the report reproducible: the sweep derives seeds from the run index *and*
+   * the skill, so there is otherwise no way to ask for one particular run back.
+   */
+  seeds?: number[];
+  strict: boolean;
   quiet: boolean;
 }
 
@@ -25,14 +36,35 @@ function parseArgs(argv: string[]): Args {
     const i = argv.indexOf(flag);
     return i >= 0 && argv[i + 1] ? argv[i + 1] : dflt;
   };
+  const seed = get('--seed');
   return {
     runs: Number(get('--runs', '60')),
     days: Number(get('--days', '200')),
     difficulties: (get('--difficulty', 'standard') as string).split(',') as Difficulty[],
     csvDir: get('--csv'),
     skills: (get('--skill', '0.85,0.6') as string).split(',').map(Number),
+    policies: (get('--policy', 'reasonable') as string).split(',') as AutoplayPolicy[],
+    seeds: seed ? seed.split(',').map(Number) : undefined,
+    strict: argv.includes('--strict'),
     quiet: argv.includes('--quiet'),
   };
+}
+
+/**
+ * The command that plays exactly this run again.
+ *
+ * It has to be `balance`, not `playtest`: `tools/playtest.ts` has its own
+ * hand-rolled policy, takes neither `--policy` nor `--skill`, and defaults to 60
+ * days — so it dispatches a different action sequence, diverges the rng stream
+ * immediately, and never reaches day 147. Every value below is interpolated for
+ * that reason: a placeholder here is a command that silently reproduces nothing.
+ */
+function reproCommand(r: RunReport, days: number): string {
+  const skill = r.policy === 'adversarial' ? '' : ` --skill ${r.skill}`;
+  return (
+    `bun run balance -- --seed ${r.seed} --days ${days} ` +
+    `--difficulty ${r.difficulty} --policy ${r.policy}${skill}`
+  );
 }
 
 function pct(arr: number[], p: number): number {
@@ -156,6 +188,112 @@ function summarise(label: string, reports: RunReport[], days: number): string[] 
   return out;
 }
 
+/**
+ * Pacing is about *moments*, and the statistics above smooth moments away
+ * completely — both event bugs found during the build were invisible in every
+ * table on this page. So violations get their own section, named loudly, with
+ * enough detail (policy, difficulty, seed, days) to reproduce a single run.
+ */
+function pacingSection(reports: RunReport[], days: number): { lines: string[]; violations: number } {
+  const out: string[] = [];
+  const offenders = reports.filter((r) => r.pacing.violations.length);
+  const total = offenders.reduce((a, r) => a + r.pacing.violations.length, 0);
+
+  const modalDays = reports.reduce((a, r) => a + r.pacing.interruptedDays, 0);
+  const modals = reports.reduce((a, r) => a + r.pacing.modals, 0);
+  const busiest = reports.reduce(
+    (best, r) => (r.pacing.maxModalsInADay > best.n ? { n: r.pacing.maxModalsInADay, r } : best),
+    { n: 0, r: reports[0] },
+  );
+
+  const simDays = Math.max(1, reports.reduce((a, r) => a + r.days, 0));
+
+  out.push('');
+  out.push(`━━ Pacing ${'━'.repeat(52)}`);
+  out.push('');
+  out.push(
+    `  ${fmt(modals)} modals over ${fmt(simDays)} simulated days ` +
+      `(${(modals / simDays).toFixed(2)}/day; ${((modalDays / simDays) * 100).toFixed(0)}% of days interrupted at all).`,
+  );
+  if (busiest.r) {
+    out.push(
+      `  Busiest single day: ${busiest.n} modals on day ${busiest.r.pacing.busiestDay} ` +
+        `(${busiest.r.policy}/${busiest.r.difficulty} seed ${busiest.r.seed}).`,
+    );
+  }
+
+  if (!total) {
+    out.push('');
+    out.push('  ✓  No pacing violations. Cooldowns held, the modal cap held, no beat repeated.');
+    return { lines: out, violations: 0 };
+  }
+
+  const byKind: Record<string, number> = {};
+  // Grouped by the id *and the subject class* at fault, because "which event
+  // keeps coming back, and to whom" is the question a pacing failure asks. The
+  // kind is part of the key, so a same-subject repeat never averages into the
+  // much larger pile of same-template-different-person raises.
+  const byId = new Map<string, { kind: string; n: number; minGap: number; sample?: string; repro?: string }>();
+  for (const r of offenders) {
+    for (const v of r.pacing.violations) {
+      byKind[v.kind] = (byKind[v.kind] ?? 0) + 1;
+      const key = `${v.kind}:${v.id}`;
+      const gap = v.days.length > 1 ? v.days[v.days.length - 1] - v.days[0] : 0;
+      const e = byId.get(key) ?? { kind: v.kind, n: 0, minGap: Infinity };
+      e.n += 1;
+      e.minGap = Math.min(e.minGap, gap);
+      if (!e.sample) {
+        e.sample = `${r.policy}/${r.difficulty} seed ${r.seed}, days ${v.days.join('→')} — ${v.detail}`;
+        e.repro = reproCommand(r, days);
+      }
+      byId.set(key, e);
+    }
+  }
+
+  const sameSubject = byKind.cooldown_same_subject ?? 0;
+
+  out.push('');
+  out.push(`  ✗  ${fmt(total)} PACING VIOLATION${total === 1 ? '' : 'S'} across ${offenders.length}/${reports.length} runs`);
+  for (const [kind, n] of Object.entries(byKind).sort((a, b) => b[1] - a[1])) {
+    out.push(`       ${kind.padEnd(21)} ${fmt(n)}`);
+  }
+
+  out.push('');
+  out.push('  Repeat offenders                                             count   closest');
+  out.push('  ' + '─'.repeat(75));
+  for (const [key, e] of [...byId.entries()].sort((a, b) => b[1].n - a[1].n).slice(0, 12)) {
+    out.push(`    ${key.padEnd(55)} ${fmt(e.n).padStart(6)}   ${e.minGap}d apart`);
+  }
+
+  out.push('');
+  out.push('  One of each, in full — with the command that plays that exact run again:');
+  for (const [, e] of [...byId.entries()].sort((a, b) => b[1].n - a[1].n).slice(0, 6)) {
+    out.push(`    · ${e.sample}`);
+    out.push(`      ${e.repro}`);
+  }
+
+  if (byKind.cooldown_same_subject || byKind.cooldown_global) {
+    // Worth stating outright, because it is the difference between a bug list
+    // and a list of things working as designed. `pickEvent` consults
+    // `state.eventCooldowns`, so a random draw can never land inside the
+    // window — every cooldown line above is therefore a scripted
+    // `raiseEvent`/`raiseEventById`, which sets the cooldown and, by design,
+    // does not check it (src/sim/eventsys.ts).
+    out.push('');
+    out.push('  Note: pickEvent honours eventCooldowns, so none of these are random draws. Every');
+    out.push('  cooldown line is a scripted raise; raiseEvent sets the cooldown and deliberately');
+    out.push('  does not check it, so a follow-up to a choice always lands (src/sim/eventsys.ts).');
+    out.push(`  cooldown_global (${fmt(byKind.cooldown_global ?? 0)}) is mostly one arc beat reaching two different`);
+    out.push('  clients in the same fortnight — expected, not a defect.');
+    out.push(
+      `  cooldown_same_subject (${fmt(sameSubject)}) is the one to look at: the same person, or the`,
+    );
+    out.push('  practice, handed the same dilemma twice inside its window.');
+  }
+
+  return { lines: out, violations: total };
+}
+
 function toCsv(reports: RunReport[]): string {
   const header = [
     'seed',
@@ -206,22 +344,33 @@ function main(): void {
   const lines: string[] = [];
 
   for (const difficulty of args.difficulties) {
-    for (const skill of args.skills) {
-      const reports: RunReport[] = [];
-      for (let i = 0; i < args.runs; i++) {
-        const seed = 1000 + i * 7919 + Math.round(skill * 100) * 13;
-        reports.push(
-          playRun({ seed, days: args.days, difficulty, skill, trace: true }),
-        );
-        if (!args.quiet && (i + 1) % 10 === 0) {
-          process.stdout.write(`\r  ${difficulty} skill=${skill}: ${i + 1}/${args.runs} runs…   `);
+    for (const policy of args.policies) {
+      // The adversarial player is a fixed set of mistakes, not a dice roll, so
+      // sweeping it across the skill axis would just run the same game twice.
+      const skills = policy === 'adversarial' ? [0] : args.skills;
+      for (const skill of skills) {
+        const reports: RunReport[] = [];
+        // `--seed` names the runs outright; otherwise the sweep derives them.
+        const seeds =
+          args.seeds ??
+          Array.from({ length: args.runs }, (_, i) => 1000 + i * 7919 + Math.round(skill * 100) * 13);
+        for (const [i, seed] of seeds.entries()) {
+          reports.push(playRun({ seed, days: args.days, difficulty, skill, policy, trace: true }));
+          if (!args.quiet && (i + 1) % 10 === 0) {
+            process.stdout.write(`\r  ${difficulty} ${policy} skill=${skill}: ${i + 1}/${seeds.length} runs…   `);
+          }
         }
+        if (!args.quiet) process.stdout.write('\r' + ' '.repeat(56) + '\r');
+        all.push(...reports);
+        const label =
+          policy === 'adversarial' ? `${difficulty} · adversarial` : `${difficulty} · player skill ${skill}`;
+        lines.push(...summarise(label, reports, args.days));
       }
-      if (!args.quiet) process.stdout.write('\r' + ' '.repeat(56) + '\r');
-      all.push(...reports);
-      lines.push(...summarise(`${difficulty} · player skill ${skill}`, reports, args.days));
     }
   }
+
+  const pacing = pacingSection(all, args.days);
+  lines.push(...pacing.lines);
 
   const elapsed = ((Date.now() - started) / 1000).toFixed(1);
   lines.push('');
@@ -237,6 +386,11 @@ function main(): void {
     writeFileSync(`${args.csvDir}/summary.txt`, text);
     writeFileSync(`${args.csvDir}/runs.json`, JSON.stringify(all, null, 2));
     console.log(`Wrote ${args.csvDir}/runs.csv, summary.txt, runs.json`);
+  }
+
+  if (args.strict && pacing.violations) {
+    console.error(`\n--strict: failing on ${pacing.violations} pacing violation${pacing.violations === 1 ? '' : 's'}.`);
+    process.exit(1);
   }
 }
 

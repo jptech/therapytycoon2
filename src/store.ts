@@ -3,6 +3,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { bus } from './sim/bus';
 import { MS_PER_GAME_MINUTE } from './sim/balance';
 import { Game, type NewGameOptions } from './sim/engine';
+import { Recorder, downloadReplay, replayStamp, type ReplayLog } from './sim/replay';
 import type { GameAction, GameState } from './sim/types';
 import { hasSave, loadGame, loadLegacy, pushAutosave, saveGame, saveLegacy } from './sim/save';
 
@@ -55,8 +56,19 @@ interface Store {
 
 const legacy = loadLegacy();
 
+const BOOT_OPTIONS: NewGameOptions = { legacy, skipTutorial: false };
+const bootGame = Game.create(BOOT_OPTIONS, bus);
+
+/**
+ * Every dispatch of the current run, kept so a bug report can be replayed
+ * exactly. It costs a type comparison and usually an integer increment per
+ * action — see src/sim/replay.ts for why ticks are counted rather than summed.
+ * One recorder per run; adopting a save starts a new one from that state.
+ */
+let recorder = Recorder.forNewGame(BOOT_OPTIONS, bootGame.state);
+
 export const useStore = create<Store>((set, get) => ({
-  game: Game.create({ legacy, skipTutorial: false }, bus),
+  game: bootGame,
   rev: 0,
   ui: {
     panel: null,
@@ -68,12 +80,18 @@ export const useStore = create<Store>((set, get) => ({
 
   dispatch(action) {
     const { game } = get();
+    // Stamped before the dispatch so a divergence names the day you were on,
+    // not the day the action carried you into.
+    const at = replayStamp(game.state);
     game.dispatch(action);
+    recorder.record(action, at, game.state);
     set({ rev: get().rev + 1 });
   },
 
   newGame(opts) {
-    const game = Game.create({ ...opts, legacy: loadLegacy() }, bus);
+    const resolved: NewGameOptions = { ...opts, legacy: loadLegacy() };
+    const game = Game.create(resolved, bus);
+    recorder = Recorder.forNewGame(resolved, game.state);
     set({
       game,
       rev: get().rev + 1,
@@ -85,6 +103,7 @@ export const useStore = create<Store>((set, get) => ({
   loadSaved() {
     const state = loadGame();
     if (!state) return false;
+    recorder = Recorder.forLoadedState(state);
     set({
       game: new Game(state, bus),
       rev: get().rev + 1,
@@ -94,6 +113,7 @@ export const useStore = create<Store>((set, get) => ({
   },
 
   loadState(state) {
+    recorder = Recorder.forLoadedState(state);
     set({
       game: new Game(state, bus),
       rev: get().rev + 1,
@@ -171,6 +191,21 @@ export function savedGameExists(): boolean {
   return hasSave();
 }
 
+/**
+ * The current run as a replayable action log. Snapshotting closes it with a
+ * fingerprint of right now, so the log verifies all the way to this instant
+ * rather than only to the last midnight.
+ */
+export function replayLog(): ReplayLog {
+  return recorder.snapshot(useStore.getState().game.state, Date.now());
+}
+
+/** Save the current run's action log to disk. Used by the crash screen. */
+export function downloadReplayLog(): void {
+  const state = useStore.getState().game.state;
+  downloadReplay(recorder.snapshot(state, Date.now()), state.practiceName);
+}
+
 /** Adopt a state produced by importSave / loadAutosave. Returns false if unusable. */
 export function adoptState(state: GameState | undefined): boolean {
   if (!state) return false;
@@ -240,6 +275,11 @@ if (import.meta.env?.DEV && typeof window !== 'undefined') {
     },
     dispatch,
     store: useStore,
+    /** The run so far as an action log — `__tt.replay` to read, `__tt.saveReplay()` to keep. */
+    get replay() {
+      return replayLog();
+    },
+    saveReplay: downloadReplayLog,
   };
 }
 

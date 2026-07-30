@@ -14,7 +14,8 @@
     "typecheck": "tsc --noEmit",
     "balance": "bun run tools/balance.ts",
     "validate": "bun run tools/validate-content.ts",
-    "playtest": "bun run tools/playtest.ts"
+    "playtest": "bun run tools/playtest.ts",
+    "replay": "bun run tools/replay.ts"
   },
   "keywords": [],
   "author": "",

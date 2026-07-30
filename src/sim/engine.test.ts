@@ -123,18 +123,18 @@ describe('a new game', () => {
     expect(s.log.length).toBeGreaterThan(0);
   });
 
-  it('is fully determined by its seed', () => {
-    // Log entry ids come from a process-global counter rather than the rng, so
-    // they are compared by text rather than by id.
-    const shape = (state: GameState) =>
-      JSON.stringify({ ...state, log: state.log.map((l) => `${l.day}:${l.kind}:${l.text}`) });
-
+  it('is fully determined by its seed, down to the last string', () => {
+    // Log entry ids used to come off a process-global counter, so two same-seed
+    // games in one process matched everywhere *except* their ids and this had
+    // to compare log lines by text. `state.idSeq` fixed that, and a whole-state
+    // diff is now the assertion — which is what makes replay verifiable.
     const a = createInitialState({ seed: 4242, skipTutorial: true });
     const b = createInitialState({ seed: 4242, skipTutorial: true });
-    expect(shape(a)).toBe(shape(b));
+    expect(JSON.stringify(b)).toBe(JSON.stringify(a));
+    expect(b.log.map((l) => l.id)).toEqual(a.log.map((l) => l.id));
 
     const c = createInitialState({ seed: 4243, skipTutorial: true });
-    expect(shape(c)).not.toBe(shape(a));
+    expect(JSON.stringify(c)).not.toBe(JSON.stringify(a));
   });
 });
 

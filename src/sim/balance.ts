@@ -18,7 +18,18 @@ export const MS_PER_GAME_MINUTE = 100;
 /** Fraction through a session at which the decision beat fires. */
 export const DECISION_AT = 0.55;
 
-export const SAVE_VERSION = 5;
+export const SAVE_VERSION = 6;
+
+/** Bumped when the shape of a recorded action log changes. See src/sim/replay.ts. */
+export const REPLAY_FORMAT = 1;
+
+/**
+ * How many entries a recording may hold before it stops growing. Ticks are
+ * run-length encoded, so a 200-day run lands in the low thousands — this only
+ * bites on a tab left running for days, and losing the tail of such a log is
+ * better than losing the browser to it.
+ */
+export const REPLAY_MAX_ENTRIES = 200_000;
 
 /**
  * How long before a non-unique event may be drawn again. Without this the same

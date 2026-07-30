@@ -29,6 +29,7 @@ src/
     engine.ts       the Game object: the reducer and the day loop
     pending.ts      which pending event owns the clock — a liveness contract
     save.ts         versioned saves, migrations, autosave ring, export/import
+    replay.ts       action-log recording, state fingerprints, replay
     util.ts         clamps, formatters, softGain
 
   content/        authored data — adding content is never an engine change
@@ -40,6 +41,8 @@ src/
 tools/
   autoplay.ts     a headless "reasonable player" that drives the sim
   balance.ts      the harness that runs it thousands of times
+  playtest.ts     one narrated run; --record writes a replay log
+  replay.ts       replays a log, --verify checks it reproduces
 ```
 
 ## The sim contract
@@ -119,9 +122,33 @@ clip, transform, filter or z-index — if you build another floating element, do
 ### One sanctioned exception
 
 A handful of transient UI flags live on `state.flags` (`showQuarterReview`, `autoSchedule`,
-`autoTechnique`) and have no dedicated action. Components that toggle them mutate the flag and
-then dispatch a no-op to force a publish. Every such site is commented; if you find yourself
-adding a fourth, add a real action instead.
+`autoTechnique`). They are presentation state that happens to sit in the sim's flag bag, and they
+are toggled with `SET_FLAG` — not by writing the flag directly. Components used to do the latter,
+with a no-op dispatch to force a publish; it worked, and it was invisible right up until replay,
+where a run whose quarter review had been dismissed stopped reproducing. The rule is simply the
+general one: if it changes the run, it is an action.
+
+The only remaining direct write is the watchdog's emergency `pendingEvents = []` in `App.tsx`,
+recovering from an unrenderable pending event. It logs what it dropped.
+
+## Replay
+
+The sim being a pure function of `(state, action, rng)` means a run is completely described by the
+options it started from plus the ordered actions dispatched into it. `src/sim/replay.ts` records
+exactly that, and `stateFingerprint()` reduces a `GameState` to a short digest of everything a
+replay is supposed to reproduce.
+
+Two details carry the weight:
+
+- **Ticks are run-length encoded, never summed.** `TICK 1` twice is not `TICK 2` — the session
+  loop reads thresholds off `state.minute`, so a coarser step can start two sessions in one pass
+  and draw their variance in schedule order rather than clock order. Recording a repeat count
+  re-dispatches the identical sequence, and collapses a day's ~600 ticks to a handful of entries.
+- **Fingerprints are stamped at every day boundary**, so a replay that drifts reports the day it
+  drifted on rather than an action index nobody can interpret.
+
+The store records every dispatch of the current run; `__tt.saveReplay()` and the crash screen both
+write one out. `bun run replay <log> --verify` exits non-zero on drift.
 
 ## The office scene
 

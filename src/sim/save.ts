@@ -54,6 +54,21 @@ const MIGRATIONS: Record<number, Migration> = {
     s.eventCooldowns ??= {};
     return s;
   },
+  5: (s) => {
+    // v5 → v6: id minting moved onto the state so replays reproduce exactly.
+    // Resume past the highest id already in the log rather than at zero, or an
+    // old save would mint a second `log_12_3` the moment it was loaded.
+    if (s.idSeq === undefined) {
+      const log = Array.isArray(s.log) ? (s.log as { id?: string }[]) : [];
+      let highest = -1;
+      for (const entry of log) {
+        const n = Number(String(entry?.id ?? '').split('_').pop());
+        if (Number.isFinite(n) && n > highest) highest = n;
+      }
+      s.idSeq = highest + 1;
+    }
+    return s;
+  },
 };
 
 export function migrate(raw: Record<string, unknown>): GameState {
@@ -79,6 +94,7 @@ export function migrate(raw: Record<string, unknown>): GameState {
   s.log ??= [];
   s.practiceLevel ??= 1;
   s.day ??= 1;
+  s.idSeq ??= 0;
   return s as unknown as GameState;
 }
 
