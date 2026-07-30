@@ -12,7 +12,7 @@
  */
 
 import { Application, Container, Graphics, Sprite, Text } from 'pixi.js';
-import { DAY_LENGTH_MINUTES, SESSION_MINUTES, SLOT_MINUTES } from '../sim/balance';
+import { DAY_LENGTH_MINUTES, SLOT_MINUTES } from '../sim/balance';
 import type { GameState, PortraitSeed, ScheduledSession, SessionResult } from '../sim/types';
 import {
   PAL,
@@ -34,7 +34,6 @@ import {
   drawPlant,
   drawReceptionDesk,
   drawRug,
-  drawShadow,
   drawSideChair,
   drawStairwell,
   drawWallArt,
@@ -102,11 +101,11 @@ const TINT_COLOR = [
   { t: 1.0, c: 0xc9873a },
 ];
 const TINT_ALPHA = [
-  { t: 0.0, v: 0.2 },
-  { t: 0.3, v: 0.07 },
-  { t: 0.58, v: 0.07 },
-  { t: 0.82, v: 0.16 },
-  { t: 1.0, v: 0.26 },
+  { t: 0.0, v: 0.18 },
+  { t: 0.3, v: 0.06 },
+  { t: 0.58, v: 0.06 },
+  { t: 0.82, v: 0.13 },
+  { t: 1.0, v: 0.2 },
 ];
 const SKY_COLOR = [
   { t: 0.0, c: 0x7c9cb6 },
@@ -275,6 +274,8 @@ export class OfficeWorld {
   private labels: Text[] = [];
   private stairX = WALL + U_WAIT + WALL + U_HALL / 2;
   private floorCount = 1;
+  /** Therapists beyond the six rooms we draw; surfaced as a "+N more" wing. */
+  private overflow = 0;
 
   private actors = new Map<string, Actor>();
   private occupied = new Map<string, string>();
@@ -288,6 +289,7 @@ export class OfficeWorld {
   private intentTimer = 0;
   /** Smoothed 0..1 "how far through the day are we" used for all ambience. */
   private ambient = 0;
+  private ambientPrimed = false;
   private dusk = 0;
   private lampLevel = 0.3;
   private lastState: GameState | null = null;
@@ -515,6 +517,7 @@ export class OfficeWorld {
     const uN = floors === 2 ? visible - gN : 0;
     const overflow = staff.length - (gN + uN);
     this.floorCount = floors;
+    this.overflow = overflow;
 
     // ── Horizontal: the ground floor sets the building width ────────────────
     // On a two-storey plan a narrow stairwell cell sits second from the left on
@@ -781,10 +784,10 @@ export class OfficeWorld {
     if (overflow > 0) {
       const wing = this.rooms.find((r) => r.kind === 'archive') ?? this.rooms[this.rooms.length - 1];
       if (wing) {
-        const label = makeLabel(`+${overflow} more`, 20, PAL.inkFaint);
+        const label = makeLabel(`+${overflow} more`, 19, PAL.inkSoft);
         label.anchor.set(0.5);
         label.x = wing.x + wing.w / 2;
-        label.y = wing.y + wing.h / 2 - 6;
+        label.y = wing.y + 37;
         this.labelLayer.addChild(label);
         this.labels.push(label);
       }
@@ -862,11 +865,29 @@ export class OfficeWorld {
           break;
         }
         case 'archive': {
-          if (room.w > 170) {
-            withOffset(g, room.x + room.w / 2, f, () => drawBookshelf(g, Math.min(120, room.w - 60), 84));
+          if (this.overflow > 0) {
+            // The wing stands for rooms we don't draw: a run of shut doors and
+            // a plaque for the "+N more" label to sit on.
+            const n = Math.min(3, Math.max(2, Math.round(room.w / 70)));
+            for (let i = 0; i < n; i++) {
+              const dx = room.x + 18 + (i * (room.w - 40)) / n;
+              drawDoorway(g, dx, f, 22, 70);
+              g.roundRect(dx, f - 70, 22, 70, 2).fill(PAL.wood);
+              g.circle(dx + 17, f - 33, 1.6).fill(PAL.amberGlow);
+            }
+            g.roundRect(room.x + room.w / 2 - 52, room.y + 24, 104, 26, 8).fill({
+              color: PAL.paper,
+              alpha: 0.92,
+            });
+          } else {
+            if (room.w > 170) {
+              withOffset(g, room.x + room.w / 2, f, () =>
+                drawBookshelf(g, Math.min(120, room.w - 60), 84),
+              );
+            }
+            withOffset(g, room.x + 34, f, () => drawSideChair(g, 1));
+            drawWallArt(g, room.x + room.w - 54, room.y + 30, 32, 24, PAL.amber);
           }
-          withOffset(g, room.x + 34, f, () => drawSideChair(g, 1));
-          drawWallArt(g, room.x + room.w - 54, room.y + 30, 32, 24, PAL.amber);
           break;
         }
       }
@@ -1042,9 +1063,15 @@ export class OfficeWorld {
 
   private updateAmbience(dt: number, state: GameState, calm: boolean): void {
     const raw = state.dayPhase === 'morning_brief' ? 0 : clamp01(state.minute / DAY_LENGTH_MINUTES);
-    // Smooth so the day-boundary reset reads as a sunrise, not a jump cut.
-    this.ambient += (raw - this.ambient) * Math.min(1, dt * (state.dayPhase === 'running' ? 3 : 1.1));
     const duskTarget = state.dayPhase === 'day_end' ? 1 : 0;
+    if (!this.ambientPrimed) {
+      // Loading a save at 4pm should open on a 4pm office, not fade up from dawn.
+      this.ambientPrimed = true;
+      this.ambient = raw;
+      this.dusk = duskTarget;
+    }
+    // Otherwise smooth, so the day-boundary reset reads as a sunrise not a cut.
+    this.ambient += (raw - this.ambient) * Math.min(1, dt * (state.dayPhase === 'running' ? 3 : 1.1));
     this.dusk += (duskTarget - this.dusk) * Math.min(1, dt * 0.9);
 
     const t = this.ambient;
