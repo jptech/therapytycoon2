@@ -65,7 +65,8 @@ interface RoomContext {
   cards: TechniqueCard[];
   focus: SessionFocus;
   day: number;
-  clientPortrait: PortraitSeed;
+  hasClient: boolean;
+  clientPortrait?: PortraitSeed;
   clientHandle: string;
   clientAge: number;
   clientCondition: string;
@@ -75,40 +76,45 @@ interface RoomContext {
   clientRapport: number;
   broughtIn: string;
   broughtInIsToday: boolean;
-  therapistPortrait: PortraitSeed;
+  therapistPortrait?: PortraitSeed;
   therapistName: string;
   therapistModality: string;
   therapistEnergyPct: number;
 }
 
+/**
+ * The cards are the part that must never fail to render — a pending decision
+ * with no way to answer it would stop the clock for good — so a missing client
+ * or therapist degrades the header rather than blanking the screen.
+ */
 function selectRoom(s: GameState): RoomContext | null {
   const pending = s.pendingEvents.find((p) => p.techniqueCards && p.techniqueCards.length > 0);
   if (!pending || !pending.techniqueCards) return null;
   const c = s.clients.find((x) => x.id === pending.clientId);
   const t = s.therapists.find((x) => x.id === pending.therapistId);
-  if (!c || !t) return null;
   const session = s.schedule.find((x) => x.id === pending.sessionId);
-  const latest = c.story[0];
+  const latest = c?.story[0];
   const isToday = !!latest && latest.day === s.day;
   return {
     instanceId: pending.instanceId,
     cards: pending.techniqueCards,
     focus: session?.focus ?? 'build_skills',
     day: s.day,
-    clientPortrait: c.portrait,
-    clientHandle: c.handle,
-    clientAge: c.age,
-    clientCondition: CONDITION_LABELS[c.condition],
-    clientSeverity: SEVERITY_LABELS[c.severity] ?? '',
-    clientChapter: CHAPTER_LABEL[c.chapter],
-    clientStability: c.stability,
-    clientRapport: c.rapport,
-    broughtIn: isToday && latest ? latest.text : openingFor(c.id, s.day),
+    hasClient: !!c,
+    clientPortrait: c?.portrait,
+    clientHandle: c?.handle ?? 'Your client',
+    clientAge: c?.age ?? 0,
+    clientCondition: c ? CONDITION_LABELS[c.condition] : '',
+    clientSeverity: c ? SEVERITY_LABELS[c.severity] ?? '' : '',
+    clientChapter: c ? CHAPTER_LABEL[c.chapter] : '',
+    clientStability: c?.stability ?? 0,
+    clientRapport: c?.rapport ?? 0,
+    broughtIn: isToday && latest ? latest.text : openingFor(c?.id ?? pending.instanceId, s.day),
     broughtInIsToday: isToday,
-    therapistPortrait: t.portrait,
-    therapistName: t.name,
-    therapistModality: modalityById[t.modality]?.name ?? t.modality,
-    therapistEnergyPct: t.energy / Math.max(1, t.maxEnergy),
+    therapistPortrait: t?.portrait,
+    therapistName: t?.name ?? 'The therapist',
+    therapistModality: t ? modalityById[t.modality]?.name ?? t.modality : '',
+    therapistEnergyPct: t ? t.energy / Math.max(1, t.maxEnergy) : 1,
   };
 }
 
@@ -123,12 +129,14 @@ export function SessionOverlay() {
   const [focusIndex, setFocusIndex] = useState(0);
   const [activeIndex, setActiveIndex] = useState(0);
   const buttons = useRef<(HTMLButtonElement | null)[]>([]);
+  const focusRef = useRef(0);
   const chosen = useRef('');
 
   // Fresh deck, fresh focus.
   useEffect(() => {
     if (!instanceId) return;
     chosen.current = '';
+    focusRef.current = 0;
     setFocusIndex(0);
     setActiveIndex(0);
     const id = window.setTimeout(() => buttons.current[0]?.focus(), 40);
@@ -146,12 +154,13 @@ export function SessionOverlay() {
 
   const move = useCallback(
     (delta: number) => {
-      setFocusIndex((prev) => {
-        const next = (prev + delta + cards.length) % Math.max(1, cards.length);
-        buttons.current[next]?.focus();
-        setActiveIndex(next);
-        return next;
-      });
+      const len = cards.length;
+      if (!len) return;
+      const next = (focusRef.current + delta + len) % len;
+      focusRef.current = next;
+      setFocusIndex(next);
+      setActiveIndex(next);
+      buttons.current[next]?.focus();
     },
     [cards.length],
   );
@@ -196,23 +205,30 @@ export function SessionOverlay() {
 
         <div className="mt-3.5 flex items-center gap-3">
           <div className="flex items-center gap-2.5 min-w-0">
-            <Portrait
-              seed={ctx.clientPortrait}
-              size={46}
-              glow
-              mood={ctx.clientStability < 0.35 ? 'sad' : 'neutral'}
-              title={`${ctx.clientHandle}, age ${ctx.clientAge}`}
-            />
+            {ctx.clientPortrait ? (
+              <Portrait
+                seed={ctx.clientPortrait}
+                size={46}
+                glow
+                mood={ctx.clientStability < 0.35 ? 'sad' : 'neutral'}
+                title={`${ctx.clientHandle}, age ${ctx.clientAge}`}
+              />
+            ) : null}
             <div className="min-w-0">
               <div className="display text-[0.98rem] leading-tight text-ink truncate">
-                {ctx.clientHandle} <span className="text-ink-faint font-normal">· {ctx.clientAge}</span>
+                {ctx.clientHandle}
+                {ctx.hasClient ? <span className="text-ink-faint font-normal"> · {ctx.clientAge}</span> : null}
               </div>
-              <div className="text-[0.72rem] text-ink-soft leading-tight truncate">
-                {ctx.clientSeverity} {ctx.clientCondition}
-              </div>
-              <div className="mt-1">
-                <Chip color="var(--color-amber-deep)">Chapter · {ctx.clientChapter}</Chip>
-              </div>
+              {ctx.hasClient ? (
+                <>
+                  <div className="text-[0.72rem] text-ink-soft leading-tight truncate">
+                    {ctx.clientSeverity} {ctx.clientCondition}
+                  </div>
+                  <div className="mt-1">
+                    <Chip color="var(--color-amber-deep)">Chapter · {ctx.clientChapter}</Chip>
+                  </div>
+                </>
+              ) : null}
             </div>
           </div>
 
@@ -239,12 +255,14 @@ export function SessionOverlay() {
               <div className="display text-[0.98rem] leading-tight text-ink truncate">{ctx.therapistName}</div>
               <div className="text-[0.72rem] text-ink-soft leading-tight truncate">{ctx.therapistModality}</div>
             </div>
-            <Portrait
-              seed={ctx.therapistPortrait}
-              size={46}
-              mood={ctx.therapistEnergyPct < 0.3 ? 'tired' : 'neutral'}
-              title={ctx.therapistName}
-            />
+            {ctx.therapistPortrait ? (
+              <Portrait
+                seed={ctx.therapistPortrait}
+                size={46}
+                mood={ctx.therapistEnergyPct < 0.3 ? 'tired' : 'neutral'}
+                title={ctx.therapistName}
+              />
+            ) : null}
           </div>
         </div>
       </header>
@@ -253,18 +271,22 @@ export function SessionOverlay() {
       <div className="px-5 pb-3.5">
         <div className="paper-flat px-3.5 py-3">
           <div className="flex flex-wrap items-center gap-1.5">
-            <Chip
-              color={ctx.clientStability > 0.55 ? 'var(--color-sage)' : 'var(--color-brick)'}
-              title={`Stability ${Math.round(ctx.clientStability * 100)}%`}
-            >
-              🫀 {stabilityLabel(ctx.clientStability)}
-            </Chip>
-            <Chip
-              color={ctx.clientRapport > 0.5 ? 'var(--color-sage)' : 'var(--color-amber-deep)'}
-              title={`Rapport ${Math.round(ctx.clientRapport * 100)}%`}
-            >
-              🤝 {rapportLabel(ctx.clientRapport)}
-            </Chip>
+            {ctx.hasClient ? (
+              <>
+                <Chip
+                  color={ctx.clientStability > 0.55 ? 'var(--color-sage)' : 'var(--color-brick)'}
+                  title={`Stability ${Math.round(ctx.clientStability * 100)}%`}
+                >
+                  🫀 {stabilityLabel(ctx.clientStability)}
+                </Chip>
+                <Chip
+                  color={ctx.clientRapport > 0.5 ? 'var(--color-sage)' : 'var(--color-amber-deep)'}
+                  title={`Rapport ${Math.round(ctx.clientRapport * 100)}%`}
+                >
+                  🤝 {rapportLabel(ctx.clientRapport)}
+                </Chip>
+              </>
+            ) : null}
             <Chip color={focusProfile.color}>
               {focusProfile.icon} {focusProfile.name}
             </Chip>
@@ -282,7 +304,10 @@ export function SessionOverlay() {
       {/* ── The deck ───────────────────────────────────────────────────────── */}
       <div className="px-5 pb-2">
         <div className="text-[0.6rem] font-extrabold uppercase tracking-[0.12em] text-ink-faint mb-2">
-          What do you reach for? <span className="text-ink-faint/70">Press 1–{cards.length}, or use the arrow keys.</span>
+          What do you reach for?{' '}
+          <span className="normal-case tracking-normal font-bold text-ink-faint/75">
+            Press 1–{cards.length}, or move with the arrow keys.
+          </span>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3" role="group" aria-label="Technique choices">
           {cards.map((card, i) => (
@@ -295,6 +320,7 @@ export function SessionOverlay() {
               onChoose={() => choose(card.techniqueId)}
               onActivate={() => setActiveIndex(i)}
               onFocus={() => {
+                focusRef.current = i;
                 setFocusIndex(i);
                 setActiveIndex(i);
               }}

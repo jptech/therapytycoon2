@@ -36,8 +36,10 @@ import {
   drawRug,
   drawShadow,
   drawSideChair,
-  drawStairs,
+  drawStairwell,
   drawWallArt,
+  drawWallClock,
+  drawWaterCooler,
   drawWindowFrame,
   drawWindowPanes,
   dotTexture,
@@ -68,14 +70,13 @@ const ROOF_H = 44; // gabled roof band above the top storey
 const BASE_H = 16; // foundation strip the building sits on
 const BOARD = 9; // visible floorboards inside a room
 
-const U_WAIT = 400; // waiting room / upper landing interior width
-const U_THERAPY = 178; // one therapy room
-const U_BREAK = 208; // break room
+const U_WAIT = 336; // waiting room / upper landing interior width
+const U_THERAPY = 186; // one therapy room
+const U_BREAK = 200; // break room
+const U_HALL = 80; // the stairwell, its own cell — only exists on a two-storey plan
 
 const DOOR_W = 24;
 const DOOR_H = 78;
-const STAIR_X = 330; // stairwell, measured from the waiting room / landing's left edge
-const STAIR_W = 66;
 
 const WALK_SPEED = 58; // design units per second
 const CLIMB_SPEED = 62;
@@ -117,7 +118,7 @@ const SKY_COLOR = [
 // Model
 // ─────────────────────────────────────────────────────────────────────────────
 
-type RoomKind = 'waiting' | 'therapy' | 'break' | 'landing' | 'archive';
+type RoomKind = 'waiting' | 'therapy' | 'break' | 'landing' | 'archive' | 'hall';
 type SeatRole = 'therapist' | 'client' | 'wait' | 'couch' | 'coffee' | 'stand';
 
 interface Seat {
@@ -475,22 +476,26 @@ export class OfficeWorld {
     const overflow = staff.length - (gN + uN);
     this.floorCount = floors;
 
-    // ── Horizontal: ground floor sets the building width ────────────────────
+    // ── Horizontal: the ground floor sets the building width ────────────────
+    // On a two-storey plan a narrow stairwell cell sits second from the left on
+    // BOTH floors, so the flights meet and the plan reads as one building.
+    const hall = floors === 2 ? [U_HALL] : [];
     const groundCells: number[] = [
       U_WAIT,
+      ...hall,
       ...Array.from({ length: gN }, () => U_THERAPY),
       U_BREAK,
     ];
     const outerW = 2 * WALL + groundCells.reduce((a, b) => a + b, 0) + WALL * (groundCells.length - 1);
 
-    // ── Upper floor fills the same width: landing (matched to the waiting room
-    //    so the stairwell lines up) + therapy rooms + a flexible right wing.
-    const upperCellCount = 2 + uN;
+    // The upper floor fills the same width: a landing matched to the waiting
+    // room, the shared stairwell, therapy rooms, then a flexible right wing.
+    const upperCellCount = 3 + uN;
     const availUpper = outerW - 2 * WALL - WALL * (upperCellCount - 1);
-    const landingW = U_WAIT;
-    const archiveW = Math.max(140, availUpper - landingW - uN * U_THERAPY);
+    const archiveW = Math.max(140, availUpper - U_WAIT - U_HALL - uN * U_THERAPY);
     const upperCells: number[] = [
-      landingW,
+      U_WAIT,
+      U_HALL,
       ...Array.from({ length: uN }, () => U_THERAPY),
       archiveW,
     ];
@@ -506,15 +511,16 @@ export class OfficeWorld {
     this.designH = y + BASE_H;
 
     // Fit-to-viewport. The building sits low in the frame so the sky above it
-    // has room to change colour through the day.
+    // has room to change colour through the day (and so the HUD has somewhere
+    // to live without covering anyone's head).
     const s = Math.min(
-      (this.screenW * 0.94) / this.designW,
-      (this.screenH * 0.78) / this.designH,
-      1.75,
+      (this.screenW * 0.95) / this.designW,
+      (this.screenH * 0.68) / this.designH,
+      2.4,
     );
     this.scale = s;
     const ox = (this.screenW - this.designW * s) / 2;
-    const oy = Math.max(this.screenH * 0.05, this.screenH * 0.9 - this.designH * s);
+    const oy = Math.max(this.screenH * 0.05, this.screenH * 0.92 - this.designH * s);
     for (const c of [this.world, this.lightLayer, this.fxLayer]) {
       c.scale.set(s);
       c.position.set(ox, oy);
@@ -547,9 +553,10 @@ export class OfficeWorld {
     };
 
     const therapyKinds = (n: number): RoomKind[] => Array.from({ length: n }, () => 'therapy' as const);
-    makeFloor(groundCells, 0, ['waiting', ...therapyKinds(gN), 'break']);
+    const hallKind: RoomKind[] = floors === 2 ? ['hall'] : [];
+    makeFloor(groundCells, 0, ['waiting', ...hallKind, ...therapyKinds(gN), 'break']);
     if (floors === 2) {
-      makeFloor(upperCells, 1, ['landing', ...therapyKinds(uN), 'archive']);
+      makeFloor(upperCells, 1, ['landing', 'hall', ...therapyKinds(uN), 'archive']);
     }
 
     // Assign therapists to therapy rooms, ground floor first.
@@ -563,7 +570,8 @@ export class OfficeWorld {
     });
     this.waitingRoom = this.rooms.find((r) => r.kind === 'waiting') ?? null;
     this.breakRoom = this.rooms.find((r) => r.kind === 'break') ?? null;
-    this.stairX = WALL + STAIR_X + STAIR_W / 2;
+    const hallRoom = this.rooms.find((r) => r.kind === 'hall');
+    this.stairX = hallRoom ? hallRoom.x + hallRoom.w / 2 : WALL + U_WAIT / 2;
 
     this.buildSeats();
 
@@ -610,31 +618,34 @@ export class OfficeWorld {
 
       switch (room.kind) {
         case 'waiting':
-          // Three chairs between the coat rack and the low table, plus loose
-          // standing spots so a busy morning never runs out of room.
-          push('wait', 184, 1, true);
-          push('wait', 222, 1, true);
-          push('wait', 260, 1, true);
-          push('stand', 60, -1, false);
-          push('stand', 150, 1, false);
-          push('stand', 340, -1, false);
+          // Three chairs in the middle of the room, plus standing spots in the
+          // gaps so a busy morning never runs out of somewhere to be.
+          push('wait', 176, 1, true);
+          push('wait', 214, 1, true);
+          push('wait', 252, 1, true);
+          push('stand', 62, -1, false);
+          push('stand', 195, 1, false);
+          push('stand', 233, -1, false);
           break;
         case 'therapy':
-          push('therapist', 62, 1, true);
-          push('client', 132, -1, true);
-          push('stand', 100, 1, false);
+          push('therapist', 66, 1, true);
+          push('client', 138, -1, true);
+          push('stand', 102, 1, false);
           break;
         case 'break':
           push('coffee', 68, -1, false);
-          push('couch', 132, 1, true);
-          push('couch', 170, 1, true);
+          push('couch', 130, 1, true);
+          push('couch', 166, 1, true);
           break;
         case 'landing':
-          push('stand', 118, 1, false);
-          push('stand', 300, -1, false);
+          push('stand', 122, 1, false);
+          push('stand', 232, -1, false);
           break;
         case 'archive':
           push('stand', Math.min(60, room.w - 30), 1, false);
+          break;
+        case 'hall':
+          // Nobody loiters on the stairs.
           break;
       }
       room.seats = seats;
@@ -684,7 +695,9 @@ export class OfficeWorld {
               ? mix(PAL.paperWarm, PAL.plum, 0.08)
               : room.kind === 'archive'
                 ? mix(PAL.paperWarm, PAL.ink, 0.1)
-                : PAL.paper;
+                : room.kind === 'hall'
+                  ? mix(PAL.paperWarm, PAL.woodDeep, 0.14)
+                  : PAL.paper;
       g.rect(room.x, room.y, room.w, room.h).fill(wall);
       // Subtle inner shadows: a band under the ceiling and down both walls.
       g.rect(room.x, room.y, room.w, 9).fill({ color: PAL.ink, alpha: 0.09 });
@@ -699,14 +712,22 @@ export class OfficeWorld {
       g.rect(room.x, room.floorY - 4, room.w, 4).fill({ color: PAL.paperDeep, alpha: 0.9 });
     }
 
-    // Stairwell: only when there is somewhere to climb to.
+    // Stairwell: one switchback flight filling the shared hall cell. The slab
+    // between the storeys is cut away so the flight reads as continuous.
     if (floors === 2) {
-      const landing = this.rooms.find((r) => r.kind === 'landing');
-      const wait = this.waitingRoom;
-      if (landing && wait) {
-        g.rect(landing.x + STAIR_X, landing.floorY, STAIR_W, BOARD + SLAB).fill(darken(PAL.night, 0.05));
-        this.propsStairs(g, landing.x + STAIR_X, landing.floorY - 44, STAIR_W, 44);
-        this.propsStairs(g, wait.x + STAIR_X, wait.floorY - 44, STAIR_W, 44);
+      const groundHall = this.rooms.find((r) => r.kind === 'hall' && r.floor === 0);
+      const upperHall = this.rooms.find((r) => r.kind === 'hall' && r.floor === 1);
+      if (groundHall && upperHall) {
+        g.rect(groundHall.x, groundHall.y - SLAB - 2, groundHall.w, SLAB + 4).fill(
+          mix(PAL.paperWarm, PAL.woodDeep, 0.14),
+        );
+        this.propsStairs(
+          g,
+          groundHall.x + 6,
+          groundHall.floorY,
+          groundHall.w - 12,
+          groundHall.floorY - upperHall.floorY,
+        );
       }
     }
 
@@ -715,14 +736,16 @@ export class OfficeWorld {
     p.clear();
     for (const room of this.rooms) {
       if (room.kind === 'therapy') {
-        drawWindowPanes(p, room.x + 74, room.y + 26, 46, 34);
+        drawWindowPanes(p, room.x + 84, room.y + 30, 46, 32);
       } else if (room.kind === 'break') {
-        drawWindowPanes(p, room.x + 132, room.y + 24, 46, 32);
+        drawWindowPanes(p, room.x + 130, room.y + 28, 44, 30);
       } else if (room.kind === 'landing') {
-        drawWindowPanes(p, room.x + 268, room.y + 26, 44, 32);
+        drawWindowPanes(p, room.x + 262, room.y + 30, 44, 30);
       } else if (room.kind === 'waiting') {
         // The glass in the front door.
-        drawWindowPanes(p, room.x + 14, room.floorY - 70, 20, 22);
+        drawWindowPanes(p, room.x + 14, room.floorY - 68, 20, 20);
+      } else if (room.kind === 'hall' && room.floor === this.rooms.reduce((m, r) => Math.max(m, r.floor), 0)) {
+        drawWindowPanes(p, room.x + room.w / 2 - 16, room.y + 22, 32, 26);
       }
     }
 
@@ -743,9 +766,9 @@ export class OfficeWorld {
     }
   }
 
-  /** Little staircase block, reused for the landing and the waiting room. */
+  /** The switchback flight, authored from the bottom-left of the stairwell. */
   private propsStairs(g: Graphics, x: number, y: number, w: number, h: number): void {
-    withOffset(g, x, y, () => drawStairs(g, w, h));
+    withOffset(g, x, y, () => drawStairwell(g, w, h));
   }
 
   // ── Furniture ─────────────────────────────────────────────────────────────
@@ -758,56 +781,67 @@ export class OfficeWorld {
       const f = room.floorY;
       switch (room.kind) {
         case 'waiting': {
-          // Front door in the outer wall, reception beside it, chairs, table.
-          withOffset(g, room.x + 24, f, () => drawFrontDoor(g, 30, 76));
-          withOffset(g, room.x + 98, f, () => drawReceptionDesk(g, 78));
-          withOffset(g, room.x + 128, f - 26, () => drawDeskLamp(g));
-          withOffset(g, room.x + 152, f, () => drawCoatRack(g, 58));
+          // Reading left to right: front door, reception, coats, chairs, table.
+          withOffset(g, room.x + 24, f, () => drawFrontDoor(g, 30, 74));
+          withOffset(g, room.x + 92, f, () => drawReceptionDesk(g, 74));
+          withOffset(g, room.x + 116, f - 26, () => drawDeskLamp(g));
+          withOffset(g, room.x + 146, f, () => drawCoatRack(g, 58));
           for (const s of room.seats.filter((s) => s.role === 'wait')) {
             withOffset(g, s.x, f, () => drawSideChair(g, 1));
           }
-          withOffset(g, room.x + 300, f, () => drawLowTable(g, 40));
-          drawWindowFrame(g, room.x + 14, f - 70, 20, 22);
-          drawWallArt(g, room.x + 214, room.y + 30, 34, 26, PAL.sage);
+          withOffset(g, room.x + 292, f, () => drawLowTable(g, 40));
+          withOffset(g, room.x + 322, f, () => drawWaterCooler(g));
+          drawWindowFrame(g, room.x + 14, f - 68, 20, 20);
+          drawWallArt(g, room.x + 190, room.y + 32, 36, 27, PAL.sage);
+          drawWallClock(g, room.x + 270, room.y + 40, 9);
           break;
         }
         case 'therapy': {
           const rugColor = mix(PAL.brick, PAL.paperDeep, 0.35);
-          withOffset(g, room.x + 97, f + 6, () => drawRug(g, 108, rugColor));
-          withOffset(g, room.x + 62, f, () => drawArmchair(g, 1, mix(PAL.sage, PAL.paperDeep, 0.25)));
-          withOffset(g, room.x + 132, f, () => drawArmchair(g, -1, mix(PAL.plum, PAL.paperDeep, 0.3)));
-          withOffset(g, room.x + 160, f, () => drawFloorLamp(g, 62));
-          drawWindowFrame(g, room.x + 74, room.y + 26, 46, 34);
-          drawWallArt(g, room.x + 22, room.y + 28, 28, 22, PAL.amber);
-          // A small side table between the chairs.
-          g.roundRect(room.x + 92, f - 20, 14, 3, 1.4).fill(PAL.wood);
-          g.rect(room.x + 97.6, f - 17, 2.4, 17).fill(PAL.woodDeep);
-          g.roundRect(room.x + 94, f - 24, 5, 4, 1.4).fill(PAL.paper);
+          withOffset(g, room.x + 102, f + 5, () => drawRug(g, 116, rugColor));
+          withOffset(g, room.x + 66, f, () => drawArmchair(g, 1, mix(PAL.sage, PAL.paperDeep, 0.25)));
+          withOffset(g, room.x + 138, f, () => drawArmchair(g, -1, mix(PAL.plum, PAL.paperDeep, 0.3)));
+          withOffset(g, room.x + 168, f, () => drawFloorLamp(g, 64));
+          drawWindowFrame(g, room.x + 84, room.y + 30, 46, 32);
+          drawWallArt(g, room.x + 40, room.y + 30, 28, 22, PAL.amber);
+          // A side table between the chairs, with the tissues on it.
+          g.roundRect(room.x + 96, f - 21, 16, 3.4, 1.6).fill(PAL.wood);
+          g.rect(room.x + 102.6, f - 18, 2.8, 18).fill(PAL.woodDeep);
+          g.roundRect(room.x + 99, f - 26, 7, 5, 1.6).fill(PAL.paper);
+          g.roundRect(room.x + 101, f - 28, 3, 3, 1).fill(PAL.paperDeep);
           break;
         }
         case 'break': {
           withOffset(g, room.x + 44, f, () => drawCoffeeMachine(g));
-          withOffset(g, room.x + 150, f, () => drawCouch(g, 84));
-          drawWindowFrame(g, room.x + 132, room.y + 24, 46, 32);
-          withOffset(g, room.x + 104, f, () => {
+          withOffset(g, room.x + 148, f, () => drawCouch(g, 84));
+          drawWindowFrame(g, room.x + 130, room.y + 28, 44, 30);
+          withOffset(g, room.x + 100, f, () => {
             g.roundRect(-12, -16, 24, 3, 1.4).fill(PAL.wood);
             g.rect(-1.4, -13, 2.8, 13).fill(PAL.woodDeep);
             g.roundRect(-5, -19, 5, 3, 1.2).fill(PAL.sage);
           });
+          drawWallClock(g, room.x + 96, room.y + 36, 8);
           break;
         }
         case 'landing': {
-          withOffset(g, room.x + 70, f, () => drawBookshelf(g, 46, 74));
-          drawWindowFrame(g, room.x + 268, room.y + 26, 44, 32);
-          drawWallArt(g, room.x + 160, room.y + 34, 40, 30, PAL.plum);
+          withOffset(g, room.x + 68, f, () => drawBookshelf(g, 48, 78));
+          drawWindowFrame(g, room.x + 262, room.y + 30, 44, 30);
+          drawWallArt(g, room.x + 156, room.y + 34, 40, 30, PAL.plum);
+          withOffset(g, room.x + 196, f, () => drawSideChair(g, -1));
+          break;
+        }
+        case 'hall': {
+          if (room.floor > 0) {
+            drawWindowFrame(g, room.x + room.w / 2 - 16, room.y + 22, 32, 26);
+          }
           break;
         }
         case 'archive': {
           if (room.w > 170) {
-            withOffset(g, room.x + room.w / 2, f, () => drawBookshelf(g, Math.min(120, room.w - 50), 82));
+            withOffset(g, room.x + room.w / 2, f, () => drawBookshelf(g, Math.min(120, room.w - 60), 84));
           }
           withOffset(g, room.x + 34, f, () => drawSideChair(g, 1));
-          drawWallArt(g, room.x + room.w - 54, room.y + 28, 32, 24, PAL.amber);
+          drawWallArt(g, room.x + room.w - 54, room.y + 30, 32, 24, PAL.amber);
           break;
         }
       }
@@ -893,14 +927,16 @@ export class OfficeWorld {
       // A wide, faint ceiling wash so every room has a little warmth.
       add(room.x + room.w / 2, room.y + room.h * 0.42, Math.max(room.w, 200) * 1.5, 0.16);
       if (room.kind === 'therapy') {
-        add(room.x + 160, room.floorY + lampHeadY(62), 150, 0.6);
+        add(room.x + 168, room.floorY + lampHeadY(64), 160, 0.62);
       } else if (room.kind === 'waiting') {
-        add(room.x + 128, room.floorY - 44, 120, 0.42);
-        add(room.x + 24, room.floorY - 58, 90, 0.2, PAL.amber);
+        add(room.x + 116, room.floorY - 44, 124, 0.44);
+        add(room.x + 24, room.floorY - 56, 90, 0.2, PAL.amber);
       } else if (room.kind === 'break') {
         add(room.x + 44, room.floorY - 52, 120, 0.34);
       } else if (room.kind === 'landing') {
-        add(room.x + 180, room.y + 40, 130, 0.3);
+        add(room.x + 176, room.y + 44, 130, 0.3);
+      } else if (room.kind === 'hall') {
+        add(room.x + room.w / 2, room.y + 34, 100, 0.24);
       }
     }
 
@@ -937,21 +973,24 @@ export class OfficeWorld {
         // Slots are hand-placed into the gaps between the furniture so plants
         // never grow through a chair.
         case 'waiting':
-          first.push({ x: room.x + 48, y: f, size: 38 });
-          second.push({ x: room.x + 203, y: f, size: 26 });
-          second.push({ x: room.x + 241, y: f, size: 22 });
+          first.push({ x: room.x + 48, y: f, size: 36 });
+          second.push({ x: room.x + 160, y: f, size: 24 });
+          second.push({ x: room.x + 268, y: f, size: 22 });
           break;
         case 'therapy':
-          first.push({ x: room.x + 40, y: f, size: 26 });
-          second.push({ x: room.x + 83, y: f, size: 20 });
+          first.push({ x: room.x + 22, y: f, size: 26 });
+          second.push({ x: room.x + 178, y: f, size: 20 });
           break;
         case 'break':
-          first.push({ x: room.x + 198, y: f, size: 26 });
-          second.push({ x: room.x + 84, y: f, size: 20 });
+          first.push({ x: room.x + 196, y: f, size: 26 });
+          second.push({ x: room.x + 80, y: f, size: 20 });
           break;
         case 'landing':
-          first.push({ x: room.x + 150, y: f, size: 32 });
-          second.push({ x: room.x + 254, y: f, size: 24 });
+          first.push({ x: room.x + 122, y: f, size: 32 });
+          second.push({ x: room.x + 240, y: f, size: 24 });
+          break;
+        case 'hall':
+          if (room.floor === 0) second.push({ x: room.x + room.w - 16, y: f, size: 22 });
           break;
         case 'archive':
           first.push({ x: room.x + room.w - 22, y: f, size: 28 });

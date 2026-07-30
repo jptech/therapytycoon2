@@ -214,8 +214,15 @@ function PhilosophyCard({
 
             {favored.length ? (
               <EffectRow label="Favours">
-                {joinNames(favored.map((p) => `${p.icon} ${p.name}`))} — the programs this practice is
-                built to run well.
+                <span>The programs this practice is built to run well:</span>
+                <div className="flex flex-wrap gap-1 mt-1.5">
+                  {favored.map((p) => (
+                    <Chip key={p.id} color={p.color} title={p.blurb}>
+                      <span aria-hidden>{p.icon}</span>
+                      {p.name}
+                    </Chip>
+                  ))}
+                </div>
               </EffectRow>
             ) : null}
 

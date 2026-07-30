@@ -792,6 +792,8 @@ export interface GameState {
   pendingEvents: PendingEvent[];
   queuedEvents: { eventId: string; day: number; clientId?: string; therapistId?: string }[];
   firedOnce: string[];
+  /** eventId → the first day it may be randomly drawn again. Keeps texture varied. */
+  eventCooldowns: Record<string, number>;
   flags: Record<string, number | string | boolean>;
   milestonesEarned: string[];
 

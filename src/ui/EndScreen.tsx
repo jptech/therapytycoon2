@@ -452,7 +452,7 @@ export function EndScreen() {
           </SectionHeading>
           <div
             className="grid gap-2"
-            style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))' }}
+            style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(238px, 1fr))' }}
           >
             <StatTile label="Days open" value={stats.daysPlayed} sub={`closed on day ${endedDay}`} />
             <StatTile

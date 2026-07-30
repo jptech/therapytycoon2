@@ -1,4 +1,4 @@
-import { COMMUNITY_TRUST_GAIN_FALLOFF, REPUTATION_GAIN_FALLOFF } from './balance';
+import { COMMUNITY_TRUST_GAIN_FALLOFF, EVENT_COOLDOWN_DAYS, REPUTATION_GAIN_FALLOFF } from './balance';
 import { eventById, EVENTS, techniqueById, upgradeById } from '../content';
 import { makeId, type Rng } from './rng';
 import type {
@@ -84,6 +84,10 @@ export function raiseEvent(
   if (!choices.length) return undefined;
 
   if (def.once) state.firedOnce.push(def.id);
+  // Scripted raises still set the cooldown, so a follow-up cannot be immediately
+  // echoed by the random draw.
+  state.eventCooldowns ??= {};
+  state.eventCooldowns[def.id] = state.day + EVENT_COOLDOWN_DAYS[def.scope];
 
   const pending: PendingEvent = {
     instanceId: makeId(rng, 'ev'),
@@ -121,6 +125,7 @@ export function pickEvent(
     if (e.scope !== scope) return false;
     if (e.once && state.firedOnce.includes(e.id)) return false;
     if (e.minDay !== undefined && state.day < e.minDay) return false;
+    if ((state.eventCooldowns?.[e.id] ?? 0) > state.day) return false;
     if (!meetsRequirement(state, e.requires, ctx.therapist)) return false;
     if (e.conditions?.length) {
       const c = ctx.client;

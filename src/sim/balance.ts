@@ -18,7 +18,28 @@ export const MS_PER_GAME_MINUTE = 100;
 /** Fraction through a session at which the decision beat fires. */
 export const DECISION_AT = 0.55;
 
-export const SAVE_VERSION = 4;
+export const SAVE_VERSION = 5;
+
+/**
+ * How long before a non-unique event may be drawn again. Without this the same
+ * dilemma lands three days running and the texture reads as a slot machine —
+ * which is exactly the complaint v1's decision events earned.
+ */
+export const EVENT_COOLDOWN_DAYS: Record<string, number> = {
+  client: 14,
+  staff: 16,
+  practice: 20,
+  day: 12,
+  program: 18,
+  session: 0,
+};
+
+/**
+ * A hard cap on modals per day. Late game runs 40 sessions, and a flat per-session
+ * chance would produce five interruptions a day — the opposite of cozy.
+ */
+export const MAX_CLIENT_EVENTS_PER_DAY = 2;
+export const CLIENT_EVENT_CHANCE = 0.14;
 
 // ── Quality formula ─────────────────────────────────────────────────────────
 // quality = softCap( Σ weighted terms + modifiers ), each term in 0..1.

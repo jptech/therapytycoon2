@@ -575,12 +575,46 @@ export function drawWindowPanes(g: Graphics, x: number, y: number, w: number, h:
 }
 
 export function drawWindowFrame(g: Graphics, x: number, y: number, w: number, h: number): void {
-  g.rect(x - 3, y - 3, w + 6, h + 6).fill(PAL.paperDeep);
-  g.rect(x - 3, y - 3, w + 6, h + 6).stroke({ color: PAL.inkSoft, width: 1.4, alpha: 0.55 });
-  g.rect(x + w / 2 - 1, y, 2, h).fill(PAL.paperDeep);
-  g.rect(x, y + h / 2 - 1, w, 2).fill(PAL.paperDeep);
-  // Sill.
-  g.roundRect(x - 6, y + h + 3, w + 12, 3.6, 1.4).fill(PAL.paperDeep);
+  // A warm reflection across the glass keeps the pane from reading as a hole.
+  g.moveTo(x, y + h);
+  g.lineTo(x + w * 0.45, y);
+  g.lineTo(x + w * 0.68, y);
+  g.lineTo(x + w * 0.23, y + h);
+  g.closePath();
+  g.fill({ color: 0xffffff, alpha: 0.16 });
+  // Frame + mullions, in wood so the glass reads as glass.
+  g.rect(x - 3.5, y - 3.5, w + 7, h + 7).stroke({ color: PAL.woodDeep, width: 3.5 });
+  g.rect(x + w / 2 - 1.4, y, 2.8, h).fill(PAL.woodDeep);
+  g.rect(x, y + h * 0.42 - 1.4, w, 2.8).fill(PAL.woodDeep);
+  // Sill and a curtain gathered on the left.
+  g.roundRect(x - 8, y + h + 2, w + 16, 4, 1.6).fill(PAL.paperDeep);
+  g.moveTo(x - 5, y - 5);
+  g.quadraticCurveTo(x + w * 0.18, y + h * 0.4, x - 3, y + h + 1);
+  g.lineTo(x - 12, y + h + 1);
+  g.lineTo(x - 12, y - 5);
+  g.closePath();
+  g.fill({ color: mix(PAL.brickSoft, PAL.paperWarm, 0.45), alpha: 0.92 });
+  // Pelmet.
+  g.roundRect(x - 14, y - 8, w + 28, 5, 2).fill(PAL.woodDeep);
+}
+
+/** A small wall clock — a cheap, legible bit of "this is an office". */
+export function drawWallClock(g: Graphics, x: number, y: number, r = 8): void {
+  g.circle(x, y, r).fill(PAL.paper);
+  g.circle(x, y, r).stroke({ color: PAL.woodDeep, width: 2 });
+  g.moveTo(x, y);
+  g.lineTo(x, y - r * 0.6);
+  g.moveTo(x, y);
+  g.lineTo(x + r * 0.45, y + r * 0.18);
+  g.stroke({ color: PAL.inkSoft, width: 1.3, cap: 'round' });
+}
+
+/** A water cooler for the waiting room. */
+export function drawWaterCooler(g: Graphics): void {
+  g.roundRect(-7, -26, 14, 26, 2.5).fill(PAL.paperDeep);
+  g.roundRect(-8, -44, 16, 19, 5).fill({ color: 0x9fd0dc, alpha: 0.85 });
+  g.roundRect(-8, -36, 16, 11, 3).fill({ color: 0x74b3c4, alpha: 0.9 });
+  g.roundRect(-3, -21, 6, 3, 1.2).fill(PAL.inkSoft);
 }
 
 /** The front door, standing on the floor line at the origin. */
@@ -599,10 +633,45 @@ export function drawDoorPanel(g: Graphics, w: number, h: number): void {
   g.circle(w - 4.5, -h * 0.46, 1.5).fill(PAL.amberGlow);
 }
 
-/** The dark doorway the panel covers. */
+/**
+ * The doorway a session door slides across. The opening shows the warm hall
+ * beyond rather than a black hole, so an open door still reads as inviting.
+ */
 export function drawDoorway(g: Graphics, x: number, floorY: number, w: number, h: number): void {
-  g.roundRect(x, floorY - h, w, h, 2.5).fill(darken(PAL.night, 0.1));
-  g.roundRect(x, floorY - h, w, h, 2.5).stroke({ color: PAL.woodDeep, width: 2 });
+  g.roundRect(x, floorY - h, w, h, 2).fill(mix(PAL.paperWarm, PAL.woodDeep, 0.45));
+  g.roundRect(x, floorY - h, w * 0.45, h, 2).fill({ color: PAL.amberGlow, alpha: 0.2 });
+  g.roundRect(x - 3, floorY - h - 3, w + 6, h + 3, 2.5).stroke({ color: PAL.woodDeep, width: 3 });
+}
+
+/**
+ * A compact switchback stairwell filling its own narrow cell. `h` is the full
+ * floor-to-floor rise; the origin is the bottom-left, on the lower floor line.
+ */
+export function drawStairwell(g: Graphics, w: number, h: number): void {
+  const half = h / 2;
+  const steps = 5;
+  // Lower flight climbs left → right.
+  for (let i = 0; i < steps; i++) {
+    const sx = (i * w) / steps;
+    const sy = -((i + 1) * half) / steps;
+    g.rect(sx, sy, w / steps + 1, -sy).fill(i % 2 ? PAL.wood : lighten(PAL.wood, 0.07));
+    g.rect(sx, sy, w / steps + 1, 2).fill({ color: PAL.ink, alpha: 0.18 });
+  }
+  // Mid landing.
+  g.rect(0, -half - 5, w, 5).fill(PAL.woodDeep);
+  // Upper flight climbs right → left.
+  for (let i = 0; i < steps; i++) {
+    const sx = w - ((i + 1) * w) / steps;
+    const sy = -half - 5 - ((i + 1) * (half - 5)) / steps;
+    g.rect(sx, sy, w / steps + 1, 4).fill(i % 2 ? PAL.wood : lighten(PAL.wood, 0.07));
+    g.rect(sx, sy, w / steps + 1, 1.6).fill({ color: PAL.ink, alpha: 0.16 });
+  }
+  // Banisters.
+  g.moveTo(2, -12);
+  g.lineTo(w - 2, -half - 12);
+  g.moveTo(w - 2, -half - 18);
+  g.lineTo(2, -h + 4);
+  g.stroke({ color: PAL.woodDeep, width: 2.6, cap: 'round' });
 }
 
 export function drawLowTable(g: Graphics, w: number): void {

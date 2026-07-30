@@ -46,6 +46,8 @@ interface Store {
   dispatch: (action: GameAction) => void;
   newGame: (opts?: NewGameOptions) => void;
   loadSaved: () => boolean;
+  /** Adopt an already-migrated state — used by save import and autosave restore. */
+  loadState: (state: GameState) => void;
   save: () => void;
   setUi: (patch: Partial<UiState>) => void;
   openPanel: (p: PanelId | null) => void;
@@ -89,6 +91,15 @@ export const useStore = create<Store>((set, get) => ({
       ui: { ...get().ui, screen: 'playing', panel: null },
     });
     return true;
+  },
+
+  loadState(state) {
+    set({
+      game: new Game(state, bus),
+      rev: get().rev + 1,
+      ui: { ...get().ui, screen: 'playing', panel: null, reflectResult: undefined },
+    });
+    saveGame(state, `Day ${state.day}`);
   },
 
   save() {
@@ -148,6 +159,13 @@ export function dispatch(action: GameAction): void {
 
 export function saveNow(): void {
   useStore.getState().save();
+}
+
+/** Adopt a state produced by importSave / loadAutosave. Returns false if unusable. */
+export function adoptState(state: GameState | undefined): boolean {
+  if (!state) return false;
+  useStore.getState().loadState(state);
+  return true;
 }
 
 export function savedGameExists(): boolean {

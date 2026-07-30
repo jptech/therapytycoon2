@@ -12,6 +12,7 @@ import {
   DAY_LENGTH_MINUTES,
   DAY_START_MINUTE,
   DECISION_AT,
+  CLIENT_EVENT_CHANCE,
   DIFFICULTIES,
   DROPOUT_PATIENCE_THRESHOLD,
   ENERGY_REGEN_OVERNIGHT,
@@ -20,6 +21,7 @@ import {
   MORALE_REVERSION,
   RELATIONSHIP_MORALE_CAP,
   UPGRADE_MORALE_ASYMPTOTE,
+  MAX_CLIENT_EVENTS_PER_DAY,
   MORALE_TARGETS,
   OVERHEAD_PER_CLIENT,
   PATIENCE_DECAY_PER_IDLE_DAY,
@@ -152,6 +154,7 @@ export function createInitialState(opts: NewGameOptions = {}): GameState {
     pendingEvents: [],
     queuedEvents: [],
     firedOnce: [],
+    eventCooldowns: {},
     flags: {},
     milestonesEarned: [],
     log: [],
@@ -667,9 +670,11 @@ export class Game {
     this.checkPracticeLevel();
 
     // Client-scope events sometimes follow a session.
-    if (c && c.status === 'active' && this.rng.chance(0.12)) {
+    const firedToday = Number(s.flags.clientEventsToday ?? 0);
+    if (c && c.status === 'active' && firedToday < MAX_CLIENT_EVENTS_PER_DAY && this.rng.chance(CLIENT_EVENT_CHANCE)) {
       const def = pickEvent(s, 'client', this.rng, { client: c, therapist: t });
       if (def) {
+        s.flags.clientEventsToday = firedToday + 1;
         raiseEvent(s, def, { clientId: c.id, therapistId: t?.id }, this.rng);
         if (s.settings.autoPauseOnEvent) s.paused = true;
         this.bus.emit('EVENT_RAISED', { instanceId: s.pendingEvents[s.pendingEvents.length - 1]?.instanceId ?? '' });
@@ -731,6 +736,7 @@ export class Game {
     s.paused = false;
     s.minute = 0;
     s.lastDayResults = [];
+    s.flags.clientEventsToday = 0;
     this.bus.emit('DAY_STARTED', { day: s.day });
   }
 

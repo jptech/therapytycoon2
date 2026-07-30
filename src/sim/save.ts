@@ -49,6 +49,11 @@ const MIGRATIONS: Record<number, Migration> = {
     s.alumni ??= [];
     return s;
   },
+  4: (s) => {
+    // v4 → v5: per-event cooldowns so random texture stops repeating.
+    s.eventCooldowns ??= {};
+    return s;
+  },
 };
 
 export function migrate(raw: Record<string, unknown>): GameState {
@@ -66,6 +71,7 @@ export function migrate(raw: Record<string, unknown>): GameState {
   s.pendingEvents ??= [];
   s.queuedEvents ??= [];
   s.firedOnce ??= [];
+  s.eventCooldowns ??= {};
   s.flags ??= {};
   s.candidates ??= [];
   s.programs ??= [];
