@@ -37,39 +37,39 @@ could not even reach the breakthrough threshold.
 
 | | Cozy | Standard | Challenge |
 | --- | --- | --- | --- |
-| Collapsed | **0 / 40** | 5 / 40 | 12 / 40 |
-| Fully accredited | 40 / 40 | 29 / 40 | 7 / 40 |
-| Final cash | $101,621 | $39,398 | $1,137 |
-| Reputation | 85.7 | 85.7 | 71.8 |
-| Community trust | 91.4 | 91.4 | 77.2 |
-| Practice level | 9 | 9 | 7 |
-| Therapists | 8 | 8 (p10: 3) | 3 (p10: 2) |
-| Active clients | 59 | 56 | 31 |
-| Avg morale | 86.0 | 85.8 | 80.1 |
-| Cures | 153 | 145 | 76 |
-| Complex cures | 71 | 75 | 34 |
-| Dropouts | 0 | 0 (p90: 0) | 1 (p90: 37) |
+| Collapsed | **0 / 40** | **0 / 40** | 14 / 40 |
+| Fully accredited | 39 / 40 | 34 / 40 | 8 / 40 |
+| Final cash | $126,052 | $45,813 | $4,723 |
+| Reputation | 84.1 | 84.5 | 75.8 |
+| Community trust | 87.3 | 88.4 | 79.3 |
+| Practice level | 9 | 9 | 8 (p10: 6) |
+| Therapists | 8 | 8 | 4 (p10: 2) |
+| Active clients | 59 | 57 | 37 |
+| Avg morale | 88.7 | 88.3 | 80.4 |
+| Cures | 150 | 144 | 94 |
+| Complex cures | 69 | 72 | 47 |
+| Dropouts | 0 | 0 | 0 (p90: 34) |
 | Burnouts | 2 | 4 | 2 |
-| Upgrades owned | 26 / 26 | 18 / 26 (p10: 4) | 4 / 26 |
-| Campaign stages | 5 / 5 | 5 / 5 (p10: 2) | 2 / 5 |
+| Upgrades owned | 26 / 26 | 25 / 26 (p10: 4) | 4 / 26 |
+| Campaign stages | 5 / 5 | 5 / 5 (p10: 3) | 2 / 5 |
 
 Session grades:
 
 | Grade | Cozy | Standard | Challenge |
 | --- | --- | --- | --- |
-| Breakthrough | 3.8% | 1.9% | 1.0% |
-| Excellent | 38.2% | 31.2% | 25.1% |
-| Good | 55.8% | 63.8% | 70.0% |
-| Mixed | 2.2% | 3.1% | 3.9% |
+| Breakthrough | 3.6% | 1.8% | 1.0% |
+| Excellent | 37.1% | 30.0% | 24.8% |
+| Good | 56.5% | 64.6% | 70.6% |
+| Mixed | 2.8% | 3.6% | 3.6% |
 | Poor | 0.0% | 0.0% | 0.0% |
 
 Quality drift, early (≤ day 40) → late (> day 120):
 
 | | Early | Late | Late p10–p90 |
 | --- | --- | --- | --- |
-| Cozy | 0.713 | 0.789 | 0.77 – 0.81 |
-| Standard | 0.711 | 0.774 | 0.75 – 0.80 |
-| Challenge | 0.707 | 0.765 | 0.74 – 0.79 |
+| Cozy | 0.708 | 0.787 | 0.76 – 0.81 |
+| Standard | 0.705 | 0.771 | 0.75 – 0.79 |
+| Challenge | 0.700 | 0.764 | 0.74 – 0.79 |
 
 Quality rises meaningfully across a run — mastery is real — while retaining spread, so no
 difficulty ever reads as solved.
@@ -81,13 +81,19 @@ The three difficulties are three genuinely different games rather than three mul
 - **Cozy** delivers on "approachable and fun, never brutal". Nobody collapses, everybody finishes
   the accreditation campaign, and money stops being a question by the midgame. It is the mode
   where you play for the clients and the office.
-- **Standard** has real tension in the tails. The p10 run ends *in the red with 3 therapists and
-  4 upgrades*; the p90 run is a thriving 8-person institution. The median finishes accredited
-  with about a month of runway. That gap is the game.
-- **Challenge** is hard and winnable: 30% collapse, 18% fully accredited, median cash of $1,137 at
-  day 200 — living hand to mouth for two hundred days.
+- **Standard** spreads widely without ever collapsing: the p10 run finishes with 4 of 26 upgrades
+  and 3 of 5 campaign stages, the p90 run is a thriving 8-person institution with $69k banked. The
+  median finishes accredited with about a month of runway. That gap is the game — but see below.
+- **Challenge** is hard and winnable: 35% collapse, 20% fully accredited, median cash of $4,723 at
+  day 200 and a p10 that ends in the red — living hand to mouth for two hundred days.
 
 ### Known softness
+
+- **Standard no longer collapses at all** (0/40, down from 5/40 before the Phase 6/7 fixes). The
+  spread is still wide — p10 owns 4 upgrades against p90's 26 — so the *difficulty* is still
+  legible, but the floor has come up. Either that is the right call for a cozy game's default
+  mode, or Standard now needs a little of Challenge's margin pressure back. It is a deliberate
+  question, not an oversight, and the number to move is `DIFFICULTIES.standard.expenseMult`.
 
 - **Poor sessions are ~0%** even for a weak player. The floor is high because the autoplay bot
   never assigns a wildly wrong therapist. A human can produce them (mismatch a modality, Process

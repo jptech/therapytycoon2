@@ -67,7 +67,7 @@ Every session has three beats:
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Code layout, the sim/UI contract, how to extend |
 | [docs/BALANCE.md](docs/BALANCE.md) | The harness, the current curves, how to retune |
 | [docs/CONTENT.md](docs/CONTENT.md) | Adding techniques, events, arcs and programs |
-| [docs/PROGRESS.md](docs/PROGRESS.md) | What was built, in what order, and why |
+| [docs/PROGRESS.md](docs/PROGRESS.md) | What was built, in what order, and what broke |
 | [FUTURE_WORK.md](FUTURE_WORK.md) | Known gaps and the next things worth doing |
 
 ## Commands
@@ -75,7 +75,7 @@ Every session has three beats:
 ```bash
 bun run dev          # dev server
 bun run build        # production build
-bun run test         # vitest suite (sim formulas, save migrations, content integrity)
+bun run test         # vitest — formulas, day-loop liveness, saves, content integrity
 bun run typecheck    # tsc --noEmit
 bun run balance      # headless balance harness — see docs/BALANCE.md
 bun run playtest     # narrate a single run: the beats, events and goodbyes in order

@@ -27,7 +27,7 @@ files, then a tenth reconciled cross-references and typechecked the tree.
 | File | Count |
 | --- | --- |
 | `techniques.ts` | 48 across 8 modalities, incl. 8 philosophy-exclusive |
-| `events-life.ts` + `events-practice.ts` | 62 |
+| `events-life.ts` + `events-practice.ts` | 64 |
 | `arcs.ts` | 42 arc beats |
 | `traits.ts` | 22 |
 | `upgrades.ts` | 26 |
@@ -35,7 +35,7 @@ files, then a tenth reconciled cross-references and typechecked the tree.
 | `milestones.ts` | 30 |
 | `campaign.ts` | 5 accreditation stages |
 | `programs.ts` / `philosophies.ts` | 6 / 3 |
-| `names.ts` / `testimonials.ts` | ~120 names, 70 backstories, 45 testimonials |
+| `names.ts` / `testimonials.ts` | ~120 names, 70 backstories, 48 testimonials |
 
 The integration pass caught six dangling program→event references and wired trait-specific events,
 and it also caught a real infrastructure bug: **`tsconfig.json` had `baseUrl` set, which
@@ -91,9 +91,10 @@ The fixes were structural rather than numeric:
   bankrupts a healthy practice.
 
 Iterated against the harness until the three difficulties read as three genuinely different games.
-Final curves are in [BALANCE.md](BALANCE.md); the headline is 0/40 collapses on Cozy with every run
-accredited, 5/40 on Standard with a p10 run ending in the red, and 12/40 on Challenge with a median
-final balance of $1,137.
+Final curves are in [BALANCE.md](BALANCE.md). Measured after the Phase 6 and 7 fixes: Cozy never
+collapses and 39/40 runs finish accredited; Standard also holds at 0/40 collapses but spreads
+widely (p10 owns 4 upgrades, p90 owns all 26); Challenge collapses 14/40 with a median final
+balance of $4,723 and a p10 that ends in the red.
 
 ## Phase 4 — UI, in parallel
 

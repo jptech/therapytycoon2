@@ -88,6 +88,15 @@ than *numbers* is currently unguarded.
 twice within `EVENT_COOLDOWN_DAYS`, modals per day under a ceiling, no arc beat repeating for one
 client — and fail the sweep loudly.
 
+### Standard no longer collapses at all — **S**
+
+Measured 0/40 collapses, down from 5/40 before the Phase 6/7 fixes (age-appropriate referrals and
+the event-pacing changes both shifted it). The spread is still legible — the p10 run owns 4 of 26
+upgrades against p90's 26 — but the floor has come up and the mode now never bites. Either that is
+right for a cozy game's default, or Standard needs a little of Challenge's margin pressure back.
+The number to move is `DIFFICULTIES.standard.expenseMult`; re-run the sweep and update the table
+in docs/BALANCE.md.
+
 ### Cozy has no late-game choices — **S**
 
 Every Cozy run owns all 26 upgrades and runs 3 programs by day 200. Either add a genuinely
@@ -145,11 +154,12 @@ already keeps a `roomByTherapist` map and per-actor positions, so hit-testing is
 Opening a panel while the morning brief or day-end card is up leaves the two competing for the
 same space. The panel should either dismiss the card or dock beside it. `src/App.tsx`.
 
-### The session overlay overflows a short viewport — **S**
+### The scene has a lot of dead sky — **S**
 
-It scrolls, but on a 720px screen the third and fourth technique cards sit below the fold, which
-undersells the most important choice in the game. A two-column grid fitting four cards in ~640px
-would be better. `src/ui/SessionOverlay.tsx`.
+The building sits in the lower half of the viewport with a large empty sky above it. That reads
+as deliberate at 900px tall and as wasted space on a wider screen. Either fill it (a skyline,
+weather, birds) or scale the building to the available height. `layout()` in `src/scene/office.ts`
+already computes a single fit transform, so this is one number.
 
 ### Panel state is not remembered — **S**
 
@@ -181,14 +191,19 @@ strong meta hook and is nearly free — `saveLegacy` already exists in `src/sim/
 
 ## 5. Technical
 
-### No end-to-end tests — **M**
+### ⚑ No end-to-end tests — **M**
 
-The sim has 182 tests; the React layer has none. A Playwright pass driving one full day — book,
-run, choose a technique, read the reflect card, close the day — would catch integration
-regressions that typechecking cannot. Two of the six bugs found by hand-playing were of exactly
-this kind.
+The sim has 195 tests; the React layer has almost none (only `anchor.test.ts`, which is pure). A
+Playwright pass driving one full day — book, run, choose a technique, read the reflect card, close
+the day — would catch integration regressions that typechecking cannot.
 
-### No replay tooling — **S**
+This is now the biggest measurement gap in the project. Of the bugs found by a person playing,
+**every single one** was invisible to both the typechecker and the balance harness: a tooltip
+clipped by an ancestor's `overflow`, a tooltip running off the viewport, a panel opening under the
+HUD, a day that started running under a tutorial coach-mark, and a freeze whose root cause is
+still unconfirmed. All five are the kind a browser-driving test catches on the first run.
+
+### ⚑ No replay tooling — **S**
 
 The sim is deterministic and `GameAction` is serialisable, so recording an action log and
 replaying it is nearly free — and would make any bug report exactly reproducible. This is the
@@ -209,6 +224,19 @@ into its own chunks; the content tree is the next largest contributor and could 
 Controls are real buttons with labels and visible focus, reduced-motion and calm mode are
 respected, and the office scene is `aria-hidden` decoration. There has been no screen-reader pass
 and no contrast audit of the amber-on-cream combinations.
+
+### The reported freeze is guarded, not diagnosed — **S**
+
+A player hit a state where the clock would not advance and pause/play had no effect. One concrete
+mechanism was found and fixed (App and the modals used different predicates to decide whose turn
+it was), but a stress harness across 120 seeds × 45 days shows the engine does not currently
+produce it — so that was probably not the reported freeze.
+
+It is now recoverable rather than understood: `src/sim/pending.ts` makes the predicates single-
+sourced, a watchdog in `App.tsx` drops an unrenderable pending event and logs what it was, and the
+error boundary catches render throws (which present identically). `src/sim/stall.test.ts` guards
+the class. **If it recurs, the console names the pending event or the boundary shows the stack** —
+that will pin it in one look, and the fix should then replace the watchdog rather than lean on it.
 
 ### The `state.flags` write-through pattern — **S**
 
