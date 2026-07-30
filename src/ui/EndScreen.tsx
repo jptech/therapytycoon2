@@ -3,7 +3,7 @@ import { milestoneById, philosophyById, programById } from '../content';
 import { CONDITION_LABELS, DIFFICULTIES } from '../sim/balance';
 import { modalityName } from '../sim/session';
 import { saveLegacy } from '../sim/save';
-import type { AlumniRecord, LogEntry, ModalityId, PortraitSeed } from '../sim/types';
+import type { AlumniRecord, LogEntry, ProgramInstance, Therapist } from '../sim/types';
 import { formatMoney } from '../sim/util';
 import { useSim, useSimShallow, useStore } from '../store';
 import { Portrait } from './Portrait';
@@ -194,40 +194,29 @@ function AlumniFrame({ a }: { a: AlumniRecord }) {
   );
 }
 
-interface TeamMember {
-  id: string;
-  name: string;
-  portrait: PortraitSeed;
-  modality: ModalityId;
-  tenure: number;
-  hiredDay: number;
-  departed: boolean;
-  isPlayer: boolean;
-  sessions: number;
-  cures: number;
-}
-
-function TeamRow({ t }: { t: TeamMember }) {
+function TeamRow({ t }: { t: Therapist }) {
+  const departed = t.status === 'departed';
   const stay = t.tenure === 1 ? '1 day' : `${t.tenure} days`;
   return (
     <li className="card-warm px-3 py-2.5 flex items-start gap-2.5">
-      <Portrait seed={t.portrait} size={40} mood={t.departed ? 'neutral' : 'happy'} title={t.name} />
+      <Portrait seed={t.portrait} size={40} mood={departed ? 'neutral' : 'happy'} title={t.name} />
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5 flex-wrap">
           <span className="display text-[0.92rem] text-ink leading-tight">{t.name}</span>
           {t.isPlayer ? <Chip color="var(--color-amber-deep)">you</Chip> : null}
-          {t.departed ? <Chip color="var(--color-brick)">left</Chip> : null}
+          {departed ? <Chip color="var(--color-brick)">left</Chip> : null}
         </div>
         <div className="text-[0.68rem] text-ink-faint leading-snug">{modalityName(t.modality)}</div>
         <div className="tabular text-[0.68rem] text-ink-soft leading-snug mt-0.5">
           {t.isPlayer
             ? `here from the first morning · ${stay}`
-            : t.departed
+            : departed
               ? `joined day ${t.hiredDay} · stayed ${stay}`
               : `joined day ${t.hiredDay} · ${stay} and never handed in a notice`}
         </div>
         <div className="tabular text-[0.66rem] text-ink-faint leading-snug">
-          {t.sessions} session{t.sessions === 1 ? '' : 's'} held · {t.cures} seen all the way through
+          {t.stats.sessions} session{t.stats.sessions === 1 ? '' : 's'} held · {t.stats.cures} seen
+          all the way through
         </div>
       </div>
     </li>
@@ -321,39 +310,27 @@ export function EndScreen() {
     return { rep, day };
   });
 
-  const team = useSimShallow<TeamMember[]>((s) =>
-    s.therapists
-      .map((t) => ({
-        id: t.id,
-        name: t.name,
-        portrait: t.portrait,
-        modality: t.modality,
-        tenure: t.tenure,
-        hiredDay: t.hiredDay,
-        departed: t.status === 'departed',
-        isPlayer: !!t.isPlayer,
-        sessions: t.stats.sessions,
-        cures: t.stats.cures,
-      }))
-      .sort((a, b) => Number(b.isPlayer) - Number(a.isPlayer) || a.hiredDay - b.hiredDay),
+  /**
+   * These selectors return the sim's own object references (only the containing
+   * array is new), so `useShallow` settles after one pass. Building fresh
+   * objects inside a shallow selector would never compare equal and would spin
+   * the render loop forever.
+   */
+  const team = useSimShallow<Therapist[]>((s) =>
+    [...s.therapists].sort(
+      (a, b) => Number(!!b.isPlayer) - Number(!!a.isPlayer) || a.hiredDay - b.hiredDay,
+    ),
   );
-
-  const programs = useSimShallow((s) =>
-    s.programs.map((p) => ({
-      id: p.id,
-      startedDay: p.startedDay,
-      lifetimeCash: p.lifetimeCash,
-      active: p.active,
-    })),
-  );
-
-  const milestones = useSimShallow((s) => s.milestonesEarned.slice());
+  const programs = useSimShallow<ProgramInstance[]>((s) => s.programs);
+  const milestones = useSimShallow<string[]>((s) => s.milestonesEarned);
   const wall = useSimShallow<AlumniRecord[]>((s) =>
     [...s.alumni].sort((a, b) => b.curedDay - a.curedDay).slice(0, 12),
   );
   const legacy = useSimShallow((s) => ({
     points: s.legacy.points,
-    spent: s.legacy.spent.slice(),
+    // `spendLegacy` replaces this array rather than mutating it, so the
+    // reference changing is exactly the signal we want.
+    spent: s.legacy.spent,
     runsCompleted: s.legacy.runsCompleted,
   }));
 
