@@ -260,7 +260,8 @@ function TopBar() {
           side="bottom"
           content={
             <>
-              Practice level {practiceLevel} has room for <b>{cap}</b> active clients and <b>{slots}</b> therapists.
+              Practice level {practiceLevel} has room for <b>{cap}</b> active clients and <b>{slots}</b>{' '}
+              {slots === 1 ? 'therapist' : 'therapists'}.
               Level up by helping people finish.
             </>
           }
