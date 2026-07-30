@@ -30,10 +30,17 @@ import { LogPanel } from './ui/panels/LogPanel';
  * on a machine without WebGL, so it loads lazily behind a boundary. The game is
  * fully playable if it never arrives.
  */
+function NoScene(): React.ReactElement {
+  return <></>;
+}
+
 const OfficeScene = lazy(() =>
   import('./scene/OfficeScene')
     .then((m) => ({ default: m.OfficeScene }))
-    .catch(() => ({ default: () => null })),
+    .catch((err) => {
+      console.warn('[scene] office scene unavailable — the game plays fine without it', err);
+      return { default: NoScene };
+    }),
 );
 
 const PANELS = {

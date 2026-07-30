@@ -310,6 +310,10 @@ export class OfficeWorld {
     this.root.addChild(this.skyLayer, this.world, this.tint, this.lightLayer, this.fxLayer);
     app.stage.addChild(this.root);
 
+    // Characters are depth-sorted by floor then x so nobody pops in front of a
+    // neighbour when they cross paths.
+    this.charLayer.sortableChildren = true;
+
     this.buildMotes();
   }
 
@@ -472,7 +476,11 @@ export class OfficeWorld {
     this.floorCount = floors;
 
     // ── Horizontal: ground floor sets the building width ────────────────────
-    const groundCells = [U_WAIT, ...Array(gN).fill(U_THERAPY), U_BREAK];
+    const groundCells: number[] = [
+      U_WAIT,
+      ...Array.from({ length: gN }, () => U_THERAPY),
+      U_BREAK,
+    ];
     const outerW = 2 * WALL + groundCells.reduce((a, b) => a + b, 0) + WALL * (groundCells.length - 1);
 
     // ── Upper floor fills the same width: landing (matched to the waiting room
@@ -481,7 +489,11 @@ export class OfficeWorld {
     const availUpper = outerW - 2 * WALL - WALL * (upperCellCount - 1);
     const landingW = U_WAIT;
     const archiveW = Math.max(140, availUpper - landingW - uN * U_THERAPY);
-    const upperCells = [landingW, ...Array(uN).fill(U_THERAPY), archiveW];
+    const upperCells: number[] = [
+      landingW,
+      ...Array.from({ length: uN }, () => U_THERAPY),
+      archiveW,
+    ];
 
     // ── Vertical: roof band, then storeys top→bottom, then the foundation ────
     const tops: number[] = [];
@@ -534,9 +546,10 @@ export class OfficeWorld {
       });
     };
 
-    makeFloor(groundCells, 0, ['waiting', ...Array(gN).fill('therapy' as RoomKind), 'break']);
+    const therapyKinds = (n: number): RoomKind[] => Array.from({ length: n }, () => 'therapy' as const);
+    makeFloor(groundCells, 0, ['waiting', ...therapyKinds(gN), 'break']);
     if (floors === 2) {
-      makeFloor(upperCells, 1, ['landing', ...Array(uN).fill('therapy' as RoomKind), 'archive']);
+      makeFloor(upperCells, 1, ['landing', ...therapyKinds(uN), 'archive']);
     }
 
     // Assign therapists to therapy rooms, ground floor first.
@@ -597,29 +610,28 @@ export class OfficeWorld {
 
       switch (room.kind) {
         case 'waiting':
-          // Chairs sit between the coat rack and the low table; the two loose
-          // "stand" spots keep a busy morning from running out of room.
+          // Three chairs between the coat rack and the low table, plus loose
+          // standing spots so a busy morning never runs out of room.
           push('wait', 184, 1, true);
           push('wait', 222, 1, true);
           push('wait', 260, 1, true);
-          push('stand', 150, -1, false);
-          push('stand', 336, -1, false);
-          push('stand', 64, 1, false);
+          push('stand', 60, -1, false);
+          push('stand', 150, 1, false);
+          push('stand', 340, -1, false);
           break;
         case 'therapy':
           push('therapist', 62, 1, true);
           push('client', 132, -1, true);
-          push('stand', 44, 1, false);
+          push('stand', 100, 1, false);
           break;
         case 'break':
           push('coffee', 68, -1, false);
           push('couch', 132, 1, true);
           push('couch', 170, 1, true);
-          push('stand', 100, 1, false);
           break;
         case 'landing':
-          push('stand', 120, 1, false);
-          push('stand', 236, -1, false);
+          push('stand', 118, 1, false);
+          push('stand', 300, -1, false);
           break;
         case 'archive':
           push('stand', Math.min(60, room.w - 30), 1, false);
@@ -733,8 +745,7 @@ export class OfficeWorld {
 
   /** Little staircase block, reused for the landing and the waiting room. */
   private propsStairs(g: Graphics, x: number, y: number, w: number, h: number): void {
-    g.moveTo(x, y);
-    drawStairsAt(g, x, y, w, h);
+    withOffset(g, x, y, () => drawStairs(g, w, h));
   }
 
   // ── Furniture ─────────────────────────────────────────────────────────────
@@ -748,7 +759,6 @@ export class OfficeWorld {
       switch (room.kind) {
         case 'waiting': {
           // Front door in the outer wall, reception beside it, chairs, table.
-          g.setTransform?.(); // no-op guard for older typings
           withOffset(g, room.x + 24, f, () => drawFrontDoor(g, 30, 76));
           withOffset(g, room.x + 98, f, () => drawReceptionDesk(g, 78));
           withOffset(g, room.x + 128, f - 26, () => drawDeskLamp(g));
@@ -872,7 +882,7 @@ export class OfficeWorld {
     this.lamps = [];
     this.lightLayer.removeChildren();
 
-    const add = (x: number, y: number, size: number, base: number, color = PAL.amberGlow) => {
+    const add = (x: number, y: number, size: number, base: number, color: number = PAL.amberGlow) => {
       const s = makeGlow(color, size, 0);
       s.position.set(x, y);
       this.lightLayer.addChild(s);
@@ -924,22 +934,24 @@ export class OfficeWorld {
     for (const room of this.rooms) {
       const f = room.floorY;
       switch (room.kind) {
+        // Slots are hand-placed into the gaps between the furniture so plants
+        // never grow through a chair.
         case 'waiting':
-          first.push({ x: room.x + 60, y: f, size: 40 });
-          second.push({ x: room.x + 350, y: f, size: 30 });
-          second.push({ x: room.x + 168, y: f, size: 24 });
+          first.push({ x: room.x + 48, y: f, size: 38 });
+          second.push({ x: room.x + 203, y: f, size: 26 });
+          second.push({ x: room.x + 241, y: f, size: 22 });
           break;
         case 'therapy':
-          first.push({ x: room.x + 40, y: f, size: 28 });
-          second.push({ x: room.x + room.w - 8, y: f, size: 22 });
+          first.push({ x: room.x + 40, y: f, size: 26 });
+          second.push({ x: room.x + 83, y: f, size: 20 });
           break;
         case 'break':
-          first.push({ x: room.x + 196, y: f, size: 34 });
-          second.push({ x: room.x + 88, y: f, size: 22 });
+          first.push({ x: room.x + 198, y: f, size: 26 });
+          second.push({ x: room.x + 84, y: f, size: 20 });
           break;
         case 'landing':
-          first.push({ x: room.x + 130, y: f, size: 34 });
-          second.push({ x: room.x + 254, y: f, size: 26 });
+          first.push({ x: room.x + 150, y: f, size: 32 });
+          second.push({ x: room.x + 254, y: f, size: 24 });
           break;
         case 'archive':
           first.push({ x: room.x + room.w - 22, y: f, size: 28 });
@@ -1142,6 +1154,16 @@ export class OfficeWorld {
 
   private sendTo(a: Actor, seat: Seat): void {
     if (a.wantSeat && a.wantSeat.id === seat.id) return;
+    // Two people must never end up on the same chair: whoever was there is
+    // bumped and will pick somewhere else on the next intent pass.
+    const holder = this.occupied.get(seat.id);
+    if (holder && holder !== a.key) {
+      const other = this.actors.get(holder);
+      if (other) {
+        this.releaseSeat(other);
+        other.wanderAt = 0;
+      }
+    }
     this.releaseSeat(a);
     this.occupied.set(seat.id, a.key);
     a.wantSeat = seat;
@@ -1209,11 +1231,6 @@ export class OfficeWorld {
         continue;
       }
       if (!running) continue;
-      if (a.wantSeat && a.wantSeat.role === 'therapist') {
-        // The session just ended — get up and find somewhere else to be.
-        a.wanderAt = 0;
-        this.releaseSeat(a);
-      }
       if (now < a.wanderAt) continue;
       a.wanderAt = now + 8 + Math.random() * 13;
       const tired = t.energy < t.maxEnergy * 0.55;
@@ -1340,15 +1357,14 @@ export class OfficeWorld {
       }
 
       a.mode = mode;
-      // A seated person's feet rest on the floor with the chair seat behind them.
-      a.rig.view.position.set(a.x, a.y + (mode === 'sit' ? 0 : 0));
+      // Feet sit on the floorboards; the chair geometry is drawn behind them.
+      a.rig.view.position.set(a.x, a.y);
       setPersonPose(a.rig, mode === 'sit' ? 'sit' : 'stand', a.sleepy && mode !== 'walk');
       setPersonFacing(a.rig, a.facing);
-      animatePerson(a.rig, dt, frozen && mode !== 'wave' && mode !== 'walk' ? 'idle' : mode, reduced);
-      // Later floors draw over earlier ones; within a floor, right draws over left.
+      animatePerson(a.rig, dt, mode, reduced);
+      // Upper floors draw over lower ones; within a floor, right over left.
       a.rig.view.zIndex = a.floor * 10000 + a.x;
     }
-    this.charLayer.sortableChildren = true;
   }
 
   // ───────────────────────────────────────────────────────────────────────────
@@ -1526,15 +1542,12 @@ export class OfficeWorld {
 
 /**
  * Draw a prop that is authored around its own origin at an arbitrary point.
- * Pixi v8 Graphics have no transform stack, so we lean on the Container the
- * Graphics lives in staying at the identity and translate by hand: each prop
- * helper is authored around (0,0) and we wrap it in a temporary child.
  *
- * Rather than allocating a container per prop we reuse a single Graphics and
- * bake the translation into the path by drawing into a scratch Graphics and
- * merging — but the simplest correct approach, and the one Pixi is happiest
- * with, is to translate the Graphics' own transform for the duration of the
- * draw. `Graphics.translateTransform` does exactly this in v8.
+ * Every prop helper in sprites.ts is authored standing on (0, 0). Pixi v8's
+ * GraphicsContext carries a transform that is baked into each shape as it is
+ * built, and `translateTransform` is purely additive on tx/ty — so translating
+ * out and back leaves the context exactly as we found it. That lets the whole
+ * office share one Graphics object instead of one Container per prop.
  */
 function withOffset(g: Graphics, x: number, y: number, draw: () => void): void {
   g.translateTransform(x, y);
@@ -1542,9 +1555,5 @@ function withOffset(g: Graphics, x: number, y: number, draw: () => void): void {
   g.translateTransform(-x, -y);
 }
 
-function drawStairsAt(g: Graphics, x: number, y: number, w: number, h: number): void {
-  withOffset(g, x, y, () => drawStairs(g, w, h));
-}
-
-/** Re-exported so callers can keep chair geometry and seat maths in sync. */
+/** Re-exported so room maths and chair geometry stay in sync. */
 export { SEAT_HEIGHT };

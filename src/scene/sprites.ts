@@ -179,10 +179,13 @@ export function dotTexture(): Texture {
   return _dot;
 }
 
+let _sky: Texture | null = null;
+
 /** Grayscale vertical gradient used for the sky (tinted at runtime). */
 export function skyTexture(): Texture {
+  if (_sky) return _sky;
   const c = makeCanvas(4);
-  if (!c) return Texture.WHITE;
+  if (!c) return (_sky = Texture.WHITE);
   c.width = 4;
   c.height = 256;
   const ctx = c.getContext('2d')!;
@@ -192,7 +195,8 @@ export function skyTexture(): Texture {
   g.addColorStop(1, '#ffffff');
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, 4, 256);
-  return Texture.from(c);
+  _sky = Texture.from(c);
+  return _sky;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
