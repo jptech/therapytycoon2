@@ -77,6 +77,8 @@ export function migrate(raw: Record<string, unknown>): GameState {
   s.programs ??= [];
   s.upgrades ??= [];
   s.log ??= [];
+  s.practiceLevel ??= 1;
+  s.day ??= 1;
   return s as unknown as GameState;
 }
 

@@ -78,8 +78,10 @@ const U_HALL = 80; // the stairwell, its own cell — only exists on a two-store
 const DOOR_W = 24;
 const DOOR_H = 78;
 
-const WALK_SPEED = 58; // design units per second
-const CLIMB_SPEED = 62;
+// A whole day is ~60 real seconds at 1×, so people need to cross the building
+// in a couple of seconds or they would spend the day in the corridor.
+const WALK_SPEED = 118; // design units per second
+const CLIMB_SPEED = 96;
 /** Game-minutes before their slot that a client turns up in the waiting room. */
 const ARRIVE_LEAD = 12;
 const MAX_VISIBLE_ROOMS = 6;
@@ -257,7 +259,10 @@ export class OfficeWorld {
   private designW = 1;
   private designH = 1;
   private scale = 1;
-  private needsLayout = true;
+  /** The viewport changed: recompute the fit transform only. */
+  private needsFit = true;
+  /** The building's *plan* changed: rooms, furniture and props must be redrawn. */
+  private needsPlan = true;
   private sig = '';
 
   private rooms: Room[] = [];
@@ -268,7 +273,7 @@ export class OfficeWorld {
   private lamps: LampView[] = [];
   private plants: PlantView[] = [];
   private labels: Text[] = [];
-  private stairX = WALL + STAIR_X + STAIR_W / 2;
+  private stairX = WALL + U_WAIT + WALL + U_HALL / 2;
   private floorCount = 1;
 
   private actors = new Map<string, Actor>();
@@ -327,12 +332,18 @@ export class OfficeWorld {
   // Sizing
   // ───────────────────────────────────────────────────────────────────────────
 
+  /**
+   * The viewport changed. Room geometry lives in design space and does not
+   * depend on the screen, so this only re-fits the transform and redraws the
+   * screen-space backdrop. Crucially it does NOT rebuild the plan — resizing
+   * the window must never teleport the people back to their spawn points.
+   */
   layout(width: number, height: number): void {
     if (width < 2 || height < 2) return;
     if (width === this.screenW && height === this.screenH) return;
     this.screenW = width;
     this.screenH = height;
-    this.needsLayout = true;
+    this.needsFit = true;
 
     // Full-screen pieces.
     this.tint.scale.set(width, height);
@@ -342,11 +353,40 @@ export class OfficeWorld {
     this.drawStars();
   }
 
+  /**
+   * Fit the whole building into the viewport. It sits low in the frame so the
+   * sky above it has room to change colour through the day (and so the HUD has
+   * somewhere to live without covering anyone's head).
+   */
+  private fit(): void {
+    const s = Math.min(
+      (this.screenW * 0.95) / this.designW,
+      (this.screenH * 0.68) / this.designH,
+      2.4,
+    );
+    this.scale = s;
+    const ox = (this.screenW - this.designW * s) / 2;
+    const oy = Math.max(this.screenH * 0.05, this.screenH * 0.92 - this.designH * s);
+    for (const c of [this.world, this.lightLayer, this.fxLayer]) {
+      c.scale.set(s);
+      c.position.set(ox, oy);
+    }
+    this.needsFit = false;
+  }
+
   // ───────────────────────────────────────────────────────────────────────────
   // Frame
   // ───────────────────────────────────────────────────────────────────────────
 
   update(dtMs: number, state: GameState): void {
+    // Mounting inside a collapsed or hidden container means `layout()` was
+    // handed a zero size; fall back to whatever the renderer settled on.
+    if (this.screenW < 2 || this.screenH < 2) {
+      const screen = this.app.screen;
+      if (screen && screen.width > 1 && screen.height > 1) this.layout(screen.width, screen.height);
+      if (this.screenW < 2 || this.screenH < 2) return;
+    }
+
     this.lastState = state;
     const dt = Math.min(0.05, Math.max(0, dtMs) / 1000);
     this.time += dt;
@@ -355,10 +395,12 @@ export class OfficeWorld {
     const reduced = !!state.settings?.reducedMotion;
 
     const sig = this.signature(state);
-    if (sig !== this.sig || this.needsLayout) {
+    if (sig !== this.sig || this.needsPlan) {
       this.rebuild(state);
       this.sig = sig;
-      this.needsLayout = false;
+      this.needsPlan = false;
+    } else if (this.needsFit) {
+      this.fit();
     }
 
     this.updateAmbience(dt, state, calm);
@@ -427,11 +469,11 @@ export class OfficeWorld {
   }
 
   onPracticeLeveled(): void {
-    this.needsLayout = true;
+    this.needsPlan = true;
   }
 
   onTherapistHired(): void {
-    this.needsLayout = true;
+    this.needsPlan = true;
   }
 
   destroy(): void {
@@ -455,8 +497,6 @@ export class OfficeWorld {
       staff.map((t) => t.id).join('~'),
       plants,
       state.upgrades.length,
-      Math.round(this.screenW),
-      Math.round(this.screenH),
     ].join('|');
   }
 
@@ -509,22 +549,7 @@ export class OfficeWorld {
     }
     this.designW = outerW;
     this.designH = y + BASE_H;
-
-    // Fit-to-viewport. The building sits low in the frame so the sky above it
-    // has room to change colour through the day (and so the HUD has somewhere
-    // to live without covering anyone's head).
-    const s = Math.min(
-      (this.screenW * 0.95) / this.designW,
-      (this.screenH * 0.68) / this.designH,
-      2.4,
-    );
-    this.scale = s;
-    const ox = (this.screenW - this.designW * s) / 2;
-    const oy = Math.max(this.screenH * 0.05, this.screenH * 0.92 - this.designH * s);
-    for (const c of [this.world, this.lightLayer, this.fxLayer]) {
-      c.scale.set(s);
-      c.position.set(ox, oy);
-    }
+    this.fit();
 
     // ── Rooms ───────────────────────────────────────────────────────────────
     this.rooms = [];
@@ -791,7 +816,7 @@ export class OfficeWorld {
           }
           withOffset(g, room.x + 292, f, () => drawLowTable(g, 40));
           withOffset(g, room.x + 322, f, () => drawWaterCooler(g));
-          drawWindowFrame(g, room.x + 14, f - 68, 20, 20);
+          drawWindowFrame(g, room.x + 14, f - 68, 20, 20, true);
           drawWallArt(g, room.x + 190, room.y + 32, 36, 27, PAL.sage);
           drawWallClock(g, room.x + 270, room.y + 40, 9);
           break;
@@ -846,9 +871,10 @@ export class OfficeWorld {
         }
       }
 
-      // Every therapy room gets a doorway punched into its left wall.
+      // Every therapy room gets a doorway punched through its left partition,
+      // straddling the wall so it reads as a door rather than a wardrobe.
       if (room.kind === 'therapy') {
-        drawDoorway(g, room.x + 6, room.floorY, DOOR_W, DOOR_H);
+        drawDoorway(g, room.x - WALL, room.floorY, DOOR_W, DOOR_H);
       }
     }
   }
@@ -860,13 +886,14 @@ export class OfficeWorld {
     this.doors = [];
     for (const room of this.rooms) {
       if (room.kind !== 'therapy' || !room.therapistId) continue;
+      const hinge = room.x - WALL;
       const panel = new Graphics();
       drawDoorPanel(panel, DOOR_W, DOOR_H);
-      panel.position.set(room.x + 6, room.floorY);
+      panel.position.set(hinge, room.floorY);
       panel.scale.x = 0.16;
 
       const ring = new Graphics();
-      ring.position.set(room.x + 6 + DOOR_W / 2, room.floorY - DOOR_H * 0.52);
+      ring.position.set(hinge + DOOR_W / 2, room.floorY - DOOR_H * 0.52);
       ring.alpha = 0;
 
       this.doorLayer.addChild(panel, ring);
@@ -874,7 +901,7 @@ export class OfficeWorld {
         therapistId: room.therapistId,
         panel,
         ring,
-        cx: room.x + 6 + DOOR_W / 2,
+        cx: hinge + DOOR_W / 2,
         cy: room.floorY - DOOR_H * 0.52,
         open: 0,
         target: 0,
@@ -1049,32 +1076,76 @@ export class OfficeWorld {
     }
   }
 
+  /**
+   * The town behind the practice, in three depth bands so the building reads as
+   * standing in a place rather than floating. Deterministic hashes keep it
+   * perfectly still between layouts.
+   */
   private drawSkyline(): void {
     const g = this.skyline;
     g.clear();
     const w = this.screenW;
     const h = this.screenH;
-    const baseY = h * 0.9;
-    // A quiet town behind the practice — deterministic, so it never shimmers.
-    let x = -40;
+    const baseY = h * 0.92;
+
+    // Soft clouds high up — barely there, so they read as weather not blobs.
+    for (let i = 0; i < 5; i++) {
+      const cx = ((i * 3571) % 1000) / 1000;
+      const cy = 0.06 + (((i * 977) % 100) / 100) * 0.2;
+      const cw = 80 + ((i * 61) % 120);
+      const x = cx * w;
+      const y = cy * h;
+      g.ellipse(x, y, cw, cw * 0.16).fill({ color: 0xffffff, alpha: 0.055 });
+      g.ellipse(x + cw * 0.32, y - cw * 0.07, cw * 0.5, cw * 0.14).fill({
+        color: 0xffffff,
+        alpha: 0.045,
+      });
+    }
+
+    // Far band — pale, low contrast.
+    let x = -60;
     let i = 0;
-    while (x < w + 40) {
-      const bw = 46 + ((i * 37) % 70);
-      const bh = 40 + ((i * 53) % 110);
-      g.rect(x, baseY - bh, bw, bh + 40).fill({ color: PAL.night, alpha: 0.55 });
-      // A couple of lit windows.
+    while (x < w + 60) {
+      const bw = 54 + ((i * 37) % 80);
+      const bh = 70 + ((i * 53) % 150);
+      g.rect(x, baseY - bh, bw, bh + 40).fill({ color: PAL.night, alpha: 0.3 });
+      x += bw + 10 + ((i * 13) % 26);
+      i++;
+    }
+
+    // Near band — darker, with a scattering of lit windows.
+    x = -90;
+    i = 7;
+    while (x < w + 60) {
+      const bw = 44 + ((i * 41) % 62);
+      const bh = 34 + ((i * 67) % 96);
+      g.rect(x, baseY - bh, bw, bh + 40).fill({ color: PAL.night, alpha: 0.62 });
+      // A pitched roof on some of them.
+      if (i % 3 === 0) {
+        g.moveTo(x - 5, baseY - bh);
+        g.lineTo(x + bw / 2, baseY - bh - 18);
+        g.lineTo(x + bw + 5, baseY - bh);
+        g.closePath();
+        g.fill({ color: PAL.night, alpha: 0.62 });
+      }
       for (let k = 0; k < 3; k++) {
-        if ((i * 7 + k * 11) % 5 === 0) {
-          g.rect(x + 8 + k * 13, baseY - bh + 12 + ((k * 17) % 30), 5, 6).fill({
+        if ((i * 7 + k * 11) % 4 === 0) {
+          g.rect(x + 9 + k * 14, baseY - bh + 14 + ((k * 19) % 34), 5, 7).fill({
             color: PAL.amber,
-            alpha: 0.3,
+            alpha: 0.32,
           });
         }
       }
-      x += bw + 6 + ((i * 13) % 22);
+      x += bw + 8 + ((i * 17) % 20);
       i++;
     }
-    g.rect(0, baseY, w, h - baseY).fill({ color: PAL.night, alpha: 0.72 });
+
+    // Ground the building sits on, plus a low hedge along the front.
+    g.rect(0, baseY, w, h - baseY + 4).fill({ color: PAL.night, alpha: 0.85 });
+    for (let b = 0; b * 74 < w + 74; b++) {
+      const bx = b * 74 + ((b * 29) % 26);
+      g.ellipse(bx, baseY + 6, 34, 15).fill({ color: darken(PAL.sageDeep, 0.55), alpha: 0.9 });
+    }
   }
 
   private drawStars(): void {

@@ -1241,4 +1241,112 @@ export const PRACTICE_EVENTS: readonly GameEventDef[] = [
       },
     ],
   },
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // The two beats the engine raises by name.
+  // ───────────────────────────────────────────────────────────────────────────
+  {
+    id: 'ev_practice_first_hire_nudge',
+    scope: 'practice',
+    title: 'The List Has Got Away From You',
+    body:
+      'Dr. Wren Halloway rings at ten past six, which is how you know she has been\n' +
+      'looking at your waitlist again.\n\n' +
+      '"Four people waiting. You are one person. I have done that arithmetic before\n' +
+      'and I did not enjoy where it came out." A pause. "There is a version of this\n' +
+      'where you keep every hour yourself and you are very tired and very proud.\n' +
+      'There is another version where somebody else takes the four o\'clock."\n\n' +
+      'You can hear her put the kettle on. She is going to wait for an answer.',
+    weight: 10,
+    once: true,
+    mood: 'warm',
+    choices: [
+      {
+        id: 'start_looking',
+        label: 'Start looking for someone',
+        hint: 'Candidates begin arriving. Hiring costs three days of salary up front.',
+        effects: {
+          setFlag: 'hiringOpen',
+          log: 'You put the word out. Two people answer by Thursday.',
+        },
+        outcome:
+          '"Good," she says. "Hire someone who disagrees with you about something. It keeps the room honest."',
+      },
+      {
+        id: 'not_yet',
+        label: 'Not yet — you can carry it a while longer',
+        hint: 'Nothing changes. The waitlist keeps growing, and so does the temptation.',
+        effects: {
+          therapistMorale: -2,
+          log: 'You told her you would think about it. She let you.',
+        },
+        outcome: '"Alright," she says, in the voice that means she will ask again."',
+      },
+      {
+        id: 'refer_out',
+        label: 'Refer the overflow to colleagues across town',
+        hint: 'Clears the pressure honestly. Costs some community trust — they came to you.',
+        effects: {
+          communityTrust: -4,
+          reputation: 1,
+          log: 'You spent an evening making calls on other people\'s behalf.',
+        },
+        outcome:
+          '"That is the decent thing," she says. "It is also the thing you can only do twice before people stop asking."',
+      },
+    ],
+  },
+  {
+    id: 'ev_staff_burnout_aftermath',
+    scope: 'staff',
+    title: 'The Conversation Afterwards',
+    body:
+      '{therapist} is on the phone from somewhere with birds in the background. The\n' +
+      'voice is lighter than it has been in a month, which is its own kind of\n' +
+      'indictment.\n\n' +
+      '"I want to say I did not see it coming," they say. "But I did. I just could\n' +
+      'not see what to put down."\n\n' +
+      'There is a version of this conversation where you take the blame and a version\n' +
+      'where you look at the schedule together. Only one of them changes anything.',
+    weight: 8,
+    mood: 'sad',
+    choices: [
+      {
+        id: 'look_at_schedule',
+        label: 'Open the schedule and cut something, together',
+        hint: 'They come back to a smaller caseload. Morale up, and they trust you with the next one.',
+        effects: {
+          therapistMorale: 10,
+          allMorale: 2,
+          log: 'You cut two standing hours and did not backfill them.',
+        },
+        outcome: 'They are quiet for a second. "Thank you for not saying you were sorry."',
+      },
+      {
+        id: 'take_blame',
+        label: 'Tell them it was your fault, and mean it',
+        hint: 'Kind, and true. Costs nothing but changes nothing either — the hours are still there.',
+        effects: {
+          therapistMorale: 4,
+          log: 'You apologised. They accepted it. The schedule stayed exactly as it was.',
+        },
+        outcome: '"It was both of us," they say, which is generous, and not quite right.',
+      },
+      {
+        id: 'fund_supervision',
+        label: 'Pay for outside supervision for the whole team',
+        hint: 'Costs $900 now. Everybody gets somewhere to put it before it accumulates.',
+        requires: { minCash: 900 },
+        effects: {
+          cash: -900,
+          allMorale: 6,
+          therapistMorale: 8,
+          setFlag: 'externalSupervision',
+          log: 'You retained an outside supervisor. Thursdays at eight, everyone.',
+        },
+        outcome:
+          '"You know that is the first thing anyone has bought for us that is not a chair," they say.',
+      },
+    ],
+  },
 ];

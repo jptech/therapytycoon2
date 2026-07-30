@@ -277,14 +277,16 @@ export function pushToast(
 }
 
 export function capacity(state: GameState): number {
-  const base = PRACTICE_LEVEL_CAPACITY[Math.min(PRACTICE_LEVEL_CAPACITY.length - 1, state.practiceLevel - 1)];
+  const i = Math.max(0, Math.min(PRACTICE_LEVEL_CAPACITY.length - 1, state.practiceLevel - 1));
+  const base = PRACTICE_LEVEL_CAPACITY[i];
   let bonus = 0;
   for (const u of state.upgrades) bonus += upgradeById[u]?.mods?.capacity ?? 0;
   return base + bonus;
 }
 
 export function therapistSlots(state: GameState): number {
-  return THERAPIST_SLOTS_BY_LEVEL[Math.min(THERAPIST_SLOTS_BY_LEVEL.length - 1, state.practiceLevel - 1)];
+  const i = Math.max(0, Math.min(THERAPIST_SLOTS_BY_LEVEL.length - 1, state.practiceLevel - 1));
+  return THERAPIST_SLOTS_BY_LEVEL[i];
 }
 
 export function dailyExpenses(state: GameState): number {

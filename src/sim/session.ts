@@ -249,6 +249,7 @@ export function resolveSession(
 
   // The alliance, a client's felt safety and their resilience all approach their
   // ceiling asymptotically. Deep trust should stay something you keep earning.
+  const progressBefore = c.progress;
   c.progress = clamp(c.progress + progressDelta, 0, 100);
   c.stability = clamp01(c.stability + softGain(c.stability, stabilityDelta, 1, ALLIANCE_SOFTNESS));
   c.rapport = clamp01(c.rapport + softGain(c.rapport, rapportDelta, 1, ALLIANCE_SOFTNESS));
@@ -285,6 +286,13 @@ export function resolveSession(
         }
       }
       c.chapter = chapterFor(c.progress);
+      if (e?.progress) {
+        reasons.push({
+          label: e.progress > 0 ? 'Something happened this week' : 'A setback between sessions',
+          delta: e.progress > 0 ? 0.06 : -0.06,
+          kind: e.progress > 0 ? 'good' : 'bad',
+        });
+      }
       beat = { id: b.id, text: b.text, mood: b.mood ?? 'neutral' };
       c.story.unshift({ day: state.day, text: b.text, mood: (b.mood as never) ?? 'neutral' });
       if (b.event) {
@@ -330,7 +338,11 @@ export function resolveSession(
     therapistId: t.id,
     quality: qb.quality,
     grade: qb.grade,
-    progressDelta: Math.round(progressDelta * 10) / 10,
+    // Reported as the *total* change to the client this hour, including any arc
+    // beat. Reporting only the session's own contribution meant the card could
+    // show +4 while the client moved −2, which is exactly the kind of quiet
+    // mismatch the no-hidden-punishments rule exists to prevent.
+    progressDelta: Math.round((c.progress - progressBefore) * 10) / 10,
     rapportDelta,
     stabilityDelta,
     resilienceDelta,

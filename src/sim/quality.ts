@@ -2,6 +2,10 @@ import {
   DIFFICULTIES,
   DIMINISH_SCALE,
   DIMINISH_KNEE,
+  ADULT_MODALITIES,
+  AGE_MISMATCH_PENALTY,
+  CHILD_MODALITIES,
+  MINOR_AGE,
   MOD_CEILING,
   MOD_FLOOR,
   TRAIT_QUALITY_CLAMP,
@@ -37,6 +41,17 @@ export interface QualityBreakdown {
   reasons: QualityReason[];
 }
 
+/**
+ * Is this school built for the person actually in the chair? A sand tray is a
+ * fine instrument and a poor one for a fifty-seven-year-old.
+ */
+export function ageFit(modality: string, age: number): number {
+  const minor = age < MINOR_AGE;
+  if (CHILD_MODALITIES.includes(modality)) return minor ? 1 : 1 - AGE_MISMATCH_PENALTY;
+  if (ADULT_MODALITIES.includes(modality) && age < 13) return 1 - AGE_MISMATCH_PENALTY;
+  return 1;
+}
+
 /** How well this therapist's school fits this client, 0..1. */
 export function specializationFit(t: Therapist, c: Client): number {
   const primary = modalityById[t.modality];
@@ -58,6 +73,7 @@ export function specializationFit(t: Therapist, c: Client): number {
     weight += 0.32;
   }
   best /= weight;
+  best *= ageFit(t.modality, c.age);
   if (c.preferredModality) {
     if (c.preferredModality === t.modality) best = Math.min(1, best + 0.14);
     else if (c.preferredModality === t.secondaryModality) best = Math.min(1, best + 0.08);
@@ -93,6 +109,8 @@ export function techniqueFit(tech: Technique | undefined, c: Client, focus: Sess
   if (!tech) return 0.5;
   let fit = 0.55;
   const conditions = [c.condition, ...c.comorbidities];
+  const age = ageFit(tech.modality, c.age);
+  if (age < 1) fit -= AGE_MISMATCH_PENALTY;
   if (tech.goodFor?.some((x) => x === c.condition)) fit += 0.24;
   else if (tech.goodFor?.some((x) => conditions.includes(x))) fit += 0.13;
   if (tech.poorFor?.some((x) => x === c.condition)) fit -= 0.32;
@@ -162,8 +180,12 @@ export function skillCap(practiceLevel: number): number {
  */
 export function compress(raw: number, cap: number): number {
   if (raw <= DIMINISH_KNEE) return Math.min(raw, cap);
+  // The 0.01 floor keeps the curve well-formed when the cap sits on the knee
+  // (exactly the level-1 case), but the cap is an asymptote nothing may cross,
+  // so the result is clamped to it regardless.
   const span = Math.max(0.01, cap - DIMINISH_KNEE);
-  return DIMINISH_KNEE + span * (1 - Math.exp(-(raw - DIMINISH_KNEE) / DIMINISH_SCALE));
+  const compressed = DIMINISH_KNEE + span * (1 - Math.exp(-(raw - DIMINISH_KNEE) / DIMINISH_SCALE));
+  return Math.min(compressed, cap);
 }
 
 export function gradeFor(q: number): OutcomeGrade {

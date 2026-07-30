@@ -6,7 +6,7 @@ import { generateClient, generateTherapist } from './generators';
 import { regressionChance } from './quality';
 import { Rng } from './rng';
 import { techniqueById } from '../content';
-import type { Client, GameState, ScheduledSession, SessionFocus, Therapist } from './types';
+import type { Client, GameState, ScheduledSession, SessionFocus } from './types';
 
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -146,8 +146,10 @@ describe('resolveSession', () => {
     expect(result).toBeDefined();
     expect(result.regression).toBe(false);
 
-    expect(c.progress).toBeGreaterThan(before.progress);
-    expect(result.progressDelta).toBeGreaterThan(0);
+    // The reported delta must be the *total* change to the client, arc beat
+    // included — the card is not allowed to disagree with the client sheet.
+    expect(result.progressDelta).toBeCloseTo(c.progress - before.progress, 1);
+    if (!result.beat) expect(c.progress).toBeGreaterThan(before.progress);
     expect(t.energy).toBeLessThan(before.energy);
     expect(result.energyCost).toBeGreaterThan(0);
     expect(before.energy - t.energy).toBe(result.energyCost);

@@ -378,6 +378,37 @@ export const ACT3_THERAPISTS = 4;
 export const WEEK_ONE_REFERRAL_MULT = 2;
 export const WEEK_ONE_PATIENCE_BUFFER = 25;
 
+/** Under this age a client is a minor, and the modality that fits changes. */
+export const MINOR_AGE = 18;
+
+/**
+ * Plausible age bands per presenting condition. Without these the generator
+ * produced sixty-year-olds referred for "Child Behavioral", which quietly
+ * undermines every other piece of writing in the game.
+ */
+export const AGE_RANGE_BY_CONDITION: Record<ConditionId, [number, number]> = {
+  anxiety: [15, 72],
+  depression: [16, 78],
+  trauma: [17, 74],
+  grief: [16, 84],
+  ocd: [13, 62],
+  adhd: [7, 48],
+  substance: [18, 66],
+  relationship: [21, 72],
+  eating: [13, 44],
+  bipolar: [18, 58],
+  identity: [14, 46],
+  burnout: [24, 64],
+  psychosis: [16, 38],
+  behavioral: [5, 16],
+};
+
+/** Modalities built for children, and the ones that assume an adult in the chair. */
+export const CHILD_MODALITIES: string[] = ['play'];
+export const ADULT_MODALITIES: string[] = ['psychodynamic', 'act', 'emdr', 'dbt'];
+/** Quality penalty when a modality and a client's age are working against each other. */
+export const AGE_MISMATCH_PENALTY = 0.34;
+
 export const CONDITION_LABELS: Record<ConditionId, string> = {
   anxiety: 'Anxiety',
   depression: 'Depression',

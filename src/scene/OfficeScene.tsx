@@ -61,6 +61,11 @@ export function OfficeScene() {
       el.appendChild(instance.canvas);
 
       const w = new OfficeWorld(instance);
+      const g = window as unknown as Record<string, unknown>;
+      g.__world = w;
+      (g.__worlds as unknown[]) = ((g.__worlds as unknown[]) || []).concat([
+        { w, cw: el.clientWidth, ch: el.clientHeight, connected: el.isConnected },
+      ]);
       world = w;
       w.layout(el.clientWidth, el.clientHeight);
 

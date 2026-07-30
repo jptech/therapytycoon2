@@ -89,7 +89,9 @@ const STEPS: Step[] = [
     body:
       'Eight in the morning to six in the evening, ten hours, one screen. Space holds everything. 1, 2 and 3 set the speed. Nothing bad happens while you are thinking.',
     anchor: 'clock',
-    done: (s) => s.minute >= 45,
+    // Touching the speed control *is* the thing. The clock fallback is
+    // deliberately generous so the card is never yanked away mid-sentence.
+    done: (s) => s.speed !== 1 || s.minute >= 240,
   },
   {
     id: 'waitlist',

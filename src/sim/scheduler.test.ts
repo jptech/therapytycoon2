@@ -123,22 +123,29 @@ describe('autofillSchedule', () => {
     }
   });
 
-  it('honours the energy reserve policy', () => {
-    const { state, game } = busyPractice(51);
-    state.policies.find((p) => p.kind === 'max_sessions_per_therapist')!.value = SLOTS_PER_DAY;
-    const reserve = state.policies.find((p) => p.kind === 'min_energy_reserve')!;
-    reserve.value = 60;
-    reserve.enabled = true;
-    for (const t of state.therapists) {
-      t.maxEnergy = 100;
-      t.energy = 100;
-    }
+  it('honours the energy reserve policy — a stricter reserve books fewer sessions', () => {
+    const heaviest = (reserveValue: number): number => {
+      const { state, game } = busyPractice(51);
+      state.policies.find((p) => p.kind === 'max_sessions_per_therapist')!.value = SLOTS_PER_DAY;
+      const reserve = state.policies.find((p) => p.kind === 'min_energy_reserve')!;
+      reserve.value = reserveValue;
+      reserve.enabled = true;
+      for (const t of state.therapists) {
+        t.maxEnergy = 100;
+        t.energy = 100;
+      }
+      autofillSchedule(state, game.rng);
+      const load: Record<string, number> = {};
+      for (const s of state.schedule) load[s.therapistId] = (load[s.therapistId] ?? 0) + 1;
+      return Math.max(0, ...Object.values(load));
+    };
 
-    autofillSchedule(state, game.rng);
-    const load: Record<string, number> = {};
-    for (const s of state.schedule) load[s.therapistId] = (load[s.therapistId] ?? 0) + 1;
-    // With 100 energy, a 60% reserve and 13 projected per session, at most 3 fit.
-    for (const n of Object.values(load)) expect(n).toBeLessThanOrEqual(3);
+    const loose = heaviest(0);
+    const strict = heaviest(60);
+    expect(strict).toBeLessThan(loose);
+    // The forecast is taken before each booking is added (13 energy per hour),
+    // so 100 energy against a 60% reserve leaves room for four hours.
+    expect(strict).toBeLessThanOrEqual(4);
   });
 
   it('is deterministic for a given rng seed', () => {
@@ -272,7 +279,7 @@ describe('clientPriority', () => {
 
 describe('computeExceptions', () => {
   it('surfaces a low-morale therapist and an at-risk client', () => {
-    const { state, game } = busyPractice(100);
+    const { state } = busyPractice(100);
     const grumpy = state.therapists[1];
     grumpy.morale = 20;
     const drifting = state.clients.find((c) => c.status === 'active')!;
@@ -299,7 +306,6 @@ describe('computeExceptions', () => {
     for (let i = 1; i < exceptions.length; i++) {
       expect(exceptions[i - 1].severity).toBeGreaterThanOrEqual(exceptions[i].severity);
     }
-    void game;
   });
 
   it('surfaces strain, poaching and low cash', () => {

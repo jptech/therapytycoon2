@@ -35,6 +35,9 @@ function boot(level: number, therapists: number, alumniCount: number) {
     complex: false,
   }));
   s.rng = rng.state;
+  s.upgrades.push('up_auto_scheduler');
+  s.flags.autoTechnique = true;
+  (window as unknown as Record<string, unknown>).__sim = getSim;
   dispatch({ type: 'START_DAY' });
   dispatch({ type: 'AUTOFILL_SCHEDULE' });
   dispatch({ type: 'TICK', dtMinutes: 1 });
@@ -58,4 +61,6 @@ function Harness() {
   );
 }
 
-createRoot(document.getElementById('root')!).render(<Harness />);
+const host = document.getElementById('root')! as HTMLElement & { __root?: ReturnType<typeof createRoot> };
+if (!host.__root) host.__root = createRoot(host);
+host.__root.render(<Harness />);

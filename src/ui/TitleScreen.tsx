@@ -211,7 +211,10 @@ export function TitleScreen() {
     }
   }, []);
 
-  if (screen !== 'title' && screen !== 'setup') return null;
+  // App renders this for every screen that isn't 'playing', so anything other
+  // than the setup step falls through to the hero rather than blanking out.
+  if (screen === 'playing') return null;
+  const onSetup = screen === 'setup';
 
   return (
     <div
@@ -222,7 +225,7 @@ export function TitleScreen() {
       }}
     >
       <div className="min-h-full flex flex-col items-center justify-center px-4 py-8 gap-6">
-        {screen === 'title' ? (
+        {!onSetup ? (
           <TitleHero
             animate={animate}
             hasSaved={hasSaved}

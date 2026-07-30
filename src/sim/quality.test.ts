@@ -101,7 +101,7 @@ describe('compress', () => {
    * 0.72 — compress can return up to cap + 0.01. The cap is documented as an
    * asymptote, so nothing should ever cross it.
    */
-  it.fails('never exceeds the cap when the cap equals the knee (level 1)', () => {
+  it('never exceeds the cap when the cap equals the knee (level 1)', () => {
     const cap = skillCap(1);
     expect(cap).toBe(DIMINISH_KNEE);
     for (let raw = 0; raw <= 1.5; raw += 0.01) {

@@ -1,4 +1,5 @@
 import {
+  AGE_RANGE_BY_CONDITION,
   COMPLEX_RATE_MULT,
   COMPLEX_SHARE,
   DIFFICULTIES,
@@ -161,7 +162,13 @@ export function generateClient(state: GameState, rng: Rng, opts: ClientGenOption
   const rate = Math.round(rng.range(lo, hi) * (complex ? COMPLEX_RATE_MULT : 1));
 
   const { first, last, pronouns } = pickName(rng);
-  const age = opts.sessionType === 'family' ? rng.int(9, 17) : rng.int(18, 72);
+  // Age follows the presenting condition, so a "Child Behavioral" referral is
+  // never a sixty-year-old and the writing stays believable.
+  const [ageLo, ageHi] = AGE_RANGE_BY_CONDITION[condition];
+  const age =
+    opts.sessionType === 'family'
+      ? rng.int(Math.min(9, ageHi), Math.min(17, ageHi))
+      : clamp(Math.round(rng.normal((ageLo + ageHi) / 2, (ageHi - ageLo) / 4.2)), ageLo, ageHi);
 
   const backstoryPool = CLIENT_BACKSTORIES.filter(
     (b) => !b.conditions || b.conditions.includes(condition),

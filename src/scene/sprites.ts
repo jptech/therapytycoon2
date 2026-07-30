@@ -527,10 +527,15 @@ export function drawSideChair(g: Graphics, dir: 1 | -1): void {
 
 /** A rug, drawn flat on the floor line and centred on the origin. */
 export function drawRug(g: Graphics, w: number, color: number): void {
-  const h = 7;
-  g.ellipse(0, -1.5, w / 2, h / 2).fill({ color, alpha: 0.85 });
-  g.ellipse(0, -1.5, w / 2 - 5, h / 2 - 1.6).fill({ color: lighten(color, 0.2), alpha: 0.7 });
-  g.ellipse(0, -1.5, w / 2 - 11, h / 2 - 2.6).fill({ color: darken(color, 0.12), alpha: 0.5 });
+  const h = 13;
+  g.ellipse(0, -h / 2, w / 2, h / 2).fill(color);
+  g.ellipse(0, -h / 2, w / 2 - 6, h / 2 - 2.4).fill(lighten(color, 0.22));
+  g.ellipse(0, -h / 2, w / 2 - 14, h / 2 - 4).fill(darken(color, 0.14));
+  // Fringe at both ends.
+  for (let i = -3; i <= 3; i++) {
+    g.rect(-w / 2 - 3, -h / 2 + i * 1.6 - 0.4, 4, 0.9).fill({ color: darken(color, 0.25), alpha: 0.8 });
+    g.rect(w / 2 - 1, -h / 2 + i * 1.6 - 0.4, 4, 0.9).fill({ color: darken(color, 0.25), alpha: 0.8 });
+  }
 }
 
 /** A standing lamp. The glow sprite is positioned separately at `lampHeadY`. */
@@ -574,7 +579,14 @@ export function drawWindowPanes(g: Graphics, x: number, y: number, w: number, h:
   g.rect(x, y, w, h).fill(0xffffff);
 }
 
-export function drawWindowFrame(g: Graphics, x: number, y: number, w: number, h: number): void {
+export function drawWindowFrame(
+  g: Graphics,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  plain = false,
+): void {
   // A warm reflection across the glass keeps the pane from reading as a hole.
   g.moveTo(x, y + h);
   g.lineTo(x + w * 0.45, y);
@@ -586,6 +598,7 @@ export function drawWindowFrame(g: Graphics, x: number, y: number, w: number, h:
   g.rect(x - 3.5, y - 3.5, w + 7, h + 7).stroke({ color: PAL.woodDeep, width: 3.5 });
   g.rect(x + w / 2 - 1.4, y, 2.8, h).fill(PAL.woodDeep);
   g.rect(x, y + h * 0.42 - 1.4, w, 2.8).fill(PAL.woodDeep);
+  if (plain) return;
   // Sill and a curtain gathered on the left.
   g.roundRect(x - 8, y + h + 2, w + 16, 4, 1.6).fill(PAL.paperDeep);
   g.moveTo(x - 5, y - 5);

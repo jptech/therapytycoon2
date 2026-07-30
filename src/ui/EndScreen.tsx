@@ -437,7 +437,12 @@ export function EndScreen() {
             <Chip color="var(--color-amber)">{diff.name}</Chip>
             <Chip color="var(--color-amber)">Day {endedDay}</Chip>
             <Chip color="var(--color-amber)">Practice level {stats.practiceLevel}</Chip>
-            {ph ? <Chip color="var(--color-amber)">{ph.icon} {ph.name}</Chip> : null}
+            {ph ? (
+              <Chip color="var(--color-amber)">
+                <span aria-hidden>{ph.icon}</span>
+                {ph.name}
+              </Chip>
+            ) : null}
           </div>
         </header>
 
@@ -502,7 +507,8 @@ export function EndScreen() {
                           color={def?.color ?? 'var(--color-sage-deep)'}
                           title={`Started day ${p.startedDay} · brought in ${formatMoney(p.lifetimeCash)}`}
                         >
-                          {def?.icon ?? '•'} {def?.name ?? p.id}
+                          <span aria-hidden>{def?.icon ?? '•'}</span>
+                          {def?.name ?? p.id}
                           {p.active ? '' : ' (wound down)'}
                         </Chip>
                       </li>
@@ -523,7 +529,8 @@ export function EndScreen() {
                     return (
                       <li key={id}>
                         <Chip color="var(--color-amber-deep)" title={m?.blurb}>
-                          {m?.icon ?? '★'} {m?.name ?? id}
+                          <span aria-hidden>{m?.icon ?? '★'}</span>
+                          {m?.name ?? id}
                         </Chip>
                       </li>
                     );
