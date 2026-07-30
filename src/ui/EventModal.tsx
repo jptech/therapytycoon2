@@ -107,14 +107,99 @@ const CHIP_COLOR: Record<EffectChip['tone'], string> = {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-const MOOD: Record<string, { color: string; icon: string }> = {
-  warm: { color: 'var(--color-amber)', icon: '🕯️' },
-  tense: { color: 'var(--color-brick)', icon: '🌩️' },
-  sad: { color: 'var(--color-plum)', icon: '🌧️' },
-  proud: { color: 'var(--color-sage)', icon: '🌿' },
-  curious: { color: 'var(--color-ink)', icon: '🧭' },
+type MoodKey = 'warm' | 'tense' | 'sad' | 'proud' | 'curious' | 'default';
+
+const MOOD: Record<string, { color: string; icon: string; key: MoodKey }> = {
+  warm: { color: 'var(--color-amber)', icon: '🕯️', key: 'warm' },
+  tense: { color: 'var(--color-brick)', icon: '🌩️', key: 'tense' },
+  sad: { color: 'var(--color-plum)', icon: '🌧️', key: 'sad' },
+  proud: { color: 'var(--color-sage)', icon: '🌿', key: 'proud' },
+  curious: { color: 'var(--color-ink)', icon: '🧭', key: 'curious' },
 };
-const DEFAULT_MOOD = { color: 'var(--color-ink)', icon: '✉️' };
+const DEFAULT_MOOD = { color: 'var(--color-ink)', icon: '✉️', key: 'default' as MoodKey };
+
+/**
+ * A drawn motif behind the header — the weather of the beat, in one line
+ * weight. Static: no animation, so it survives calm mode and reduced motion
+ * intact, because it is design rather than juice.
+ */
+function MoodMotif({ mood, color }: { mood: MoodKey; color: string }) {
+  const stroke = `color-mix(in oklab, ${color} 62%, transparent)`;
+  const faint = `color-mix(in oklab, ${color} 26%, transparent)`;
+  const common = {
+    fill: 'none',
+    stroke,
+    strokeWidth: 1.4,
+    strokeLinecap: 'round' as const,
+    strokeLinejoin: 'round' as const,
+  };
+  return (
+    <svg
+      viewBox="0 0 560 92"
+      preserveAspectRatio="xMidYMid slice"
+      className="absolute inset-0 w-full h-full pointer-events-none"
+      aria-hidden
+      style={{
+        opacity: 0.72,
+        maskImage: 'linear-gradient(180deg, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.45) 58%, transparent 100%)',
+        WebkitMaskImage: 'linear-gradient(180deg, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.45) 58%, transparent 100%)',
+      }}
+    >
+      {mood === 'warm' && (
+        <g {...common}>
+          {/* a shade, and the light falling out of it */}
+          <path d="M452 6 L472 6 M462 6 L462 20" />
+          <path d="M441 42 L462 20 L483 42 Z" fill={faint} />
+          <path d="M436 52 Q462 62 488 52" strokeWidth={1.1} />
+          <path d="M424 66 Q462 82 500 66" strokeWidth={0.9} opacity={0.7} />
+          <path d="M412 80 Q462 100 512 80" strokeWidth={0.8} opacity={0.45} />
+          <circle cx="462" cy="46" r="2.2" fill={stroke} stroke="none" />
+        </g>
+      )}
+      {mood === 'tense' && (
+        <g {...common}>
+          <path d="M398 12 L418 12 M392 22 L432 22 M400 32 L442 32" opacity={0.55} />
+          <path d="M470 8 L455 40 L472 40 L452 84" strokeWidth={1.7} />
+          <path d="M508 20 L496 46 L508 46 L494 76" strokeWidth={1.1} opacity={0.6} />
+          <path d="M432 14 Q460 4 492 14" strokeWidth={1.2} opacity={0.5} />
+        </g>
+      )}
+      {mood === 'sad' && (
+        <g {...common}>
+          <path d="M420 30 Q424 14 442 16 Q452 4 468 12 Q490 8 492 28 Q510 30 506 42 L424 42 Q412 40 420 30 Z" fill={faint} />
+          <path d="M430 52 L424 74 M448 50 L442 78 M466 54 L460 76 M484 50 L478 80 M500 56 L495 72" strokeWidth={1.1} opacity={0.72} />
+        </g>
+      )}
+      {mood === 'proud' && (
+        <g {...common}>
+          <path d="M470 88 L470 34" strokeWidth={1.6} />
+          <path d="M470 66 Q446 62 442 42 Q466 42 470 62" fill={faint} />
+          <path d="M470 52 Q494 48 498 28 Q474 28 470 48" fill={faint} />
+          <circle cx="470" cy="28" r="4.5" fill={faint} />
+          <circle cx="430" cy="22" r="1.8" fill={stroke} stroke="none" opacity={0.6} />
+          <circle cx="512" cy="34" r="1.5" fill={stroke} stroke="none" opacity={0.5} />
+          <circle cx="446" cy="10" r="1.2" fill={stroke} stroke="none" opacity={0.4} />
+        </g>
+      )}
+      {mood === 'curious' && (
+        <g {...common}>
+          <circle cx="470" cy="44" r="24" />
+          <circle cx="470" cy="44" r="16" opacity={0.4} />
+          <path d="M462 52 L470 30 L478 52 L470 46 Z" fill={faint} />
+          <path d="M404 74 Q430 70 442 54" strokeDasharray="3 5" opacity={0.7} />
+          <path d="M498 34 Q522 26 540 32" strokeDasharray="3 5" opacity={0.5} />
+        </g>
+      )}
+      {mood === 'default' && (
+        <g {...common}>
+          <rect x="436" y="20" width="68" height="46" rx="4" fill={faint} />
+          <path d="M436 24 L470 46 L504 24" />
+          <path d="M400 80 Q430 76 438 62" strokeDasharray="3 5" opacity={0.6} />
+        </g>
+      )}
+    </svg>
+  );
+}
 
 const SCOPE_LABEL: Record<EventScope, string> = {
   session: 'In session',
@@ -126,6 +211,9 @@ const SCOPE_LABEL: Record<EventScope, string> = {
 };
 
 const AFTERMATH_MS = 2500;
+
+const SOFT_RULE =
+  'linear-gradient(90deg, color-mix(in oklab, var(--color-ink) 15%, transparent) 0%, color-mix(in oklab, var(--color-ink) 15%, transparent) 76%, transparent 100%)';
 
 interface EventView {
   instanceId: string;
@@ -225,31 +313,46 @@ export function EventModal() {
 
   return (
     <Modal width={560} dismissable={false} labelledBy="event-modal-title">
-      {/* mood strip */}
-      <div className="h-[6px] w-full" style={{ background: mood.color }} aria-hidden />
+      {/* mood strip — lit along its top edge like everything else here */}
+      <div
+        className="h-[6px] w-full"
+        style={{
+          background: `linear-gradient(180deg, color-mix(in oklab, ${mood.color} 62%, white) 0%, ${mood.color} 45%, color-mix(in oklab, ${mood.color} 84%, black) 100%)`,
+        }}
+        aria-hidden
+      />
 
       <div
-        className="px-5 pt-3.5 pb-3"
+        className="relative overflow-hidden px-5 pt-3.5 pb-3"
         style={{
-          background: `linear-gradient(180deg, color-mix(in oklab, ${mood.color} 13%, transparent) 0%, transparent 100%)`,
+          background: `linear-gradient(180deg, color-mix(in oklab, ${mood.color} 15%, transparent) 0%, color-mix(in oklab, ${mood.color} 3%, transparent) 62%, transparent 100%)`,
         }}
       >
-        <div ref={anchor} tabIndex={-1} className="outline-none flex items-start gap-2.5">
-          <span className="text-[1.35rem] leading-none mt-0.5" aria-hidden>
+        <MoodMotif mood={mood.key} color={mood.color} />
+
+        <div ref={anchor} tabIndex={-1} className="relative outline-none flex items-start gap-2.5">
+          <span
+            className="grid place-items-center shrink-0 w-8 h-8 rounded-full text-[1.05rem] leading-none mt-0.5"
+            style={{
+              background: `color-mix(in oklab, ${mood.color} 18%, var(--color-paper))`,
+              boxShadow: `inset 0 0 0 1px color-mix(in oklab, ${mood.color} 38%, transparent), inset 0 1px 0 rgba(255,253,246,0.7), 0 1px 3px -1px rgba(24,46,46,0.3)`,
+            }}
+            aria-hidden
+          >
             {mood.icon}
           </span>
           <div className="min-w-0">
             <div className="text-[0.6rem] font-extrabold uppercase tracking-[0.14em] text-ink-faint">
               {SCOPE_LABEL[ev.scope]}
             </div>
-            <h2 id="event-modal-title" className="display text-[1.32rem] leading-tight text-ink mt-0.5">
+            <h2 id="event-modal-title" className="display text-[1.34rem] leading-tight text-ink mt-0.5 max-w-[26ch]">
               {ev.title}
             </h2>
           </div>
         </div>
 
         {(ev.clientLine || ev.therapistLine) && (
-          <div className="mt-3 flex flex-col gap-1.5">
+          <div className="relative mt-3 flex flex-col gap-1.5">
             {ev.clientLine && ev.clientPortrait ? (
               <IdentityStrip seed={ev.clientPortrait} line={ev.clientLine} accent="var(--color-sage)" />
             ) : null}
@@ -260,17 +363,20 @@ export function EventModal() {
         )}
       </div>
 
-      <div className="px-5">
-        <p className="text-[0.9rem] leading-[1.65] text-ink-soft whitespace-pre-line">{ev.body}</p>
+      <div className="px-5 pt-1">
+        <p className="text-[0.905rem] leading-[1.72] text-ink-soft whitespace-pre-line max-w-[62ch] [text-wrap:pretty]">
+          {ev.body}
+        </p>
       </div>
 
       {/* ── The choice ─────────────────────────────────────────────────────── */}
       {showing ? (
         <div className="px-5 pt-4 pb-5">
-          <div className="border-t hairline pt-3">
+          <div className="relative pt-3">
+            <span aria-hidden className="absolute inset-x-0 top-0 h-px" style={{ background: SOFT_RULE }} />
             <div className="text-[0.6rem] font-extrabold uppercase tracking-[0.13em] text-ink-faint">You chose</div>
-            <div className="display text-[0.98rem] text-ink leading-snug mt-0.5">{showing.label}</div>
-            <p className="text-[0.88rem] italic leading-relaxed text-ink-soft mt-2" role="status">
+            <div className="display text-[1.02rem] text-ink leading-snug mt-0.5">{showing.label}</div>
+            <p className="text-[0.89rem] italic leading-[1.7] text-ink-soft mt-2 max-w-[62ch]" role="status">
               {showing.text}
             </p>
             <div
@@ -291,29 +397,38 @@ export function EventModal() {
         </div>
       ) : (
         <div className="px-5 pt-4 pb-5 flex flex-col gap-2">
-          {ev.choices.map((choice) => {
+          {ev.choices.map((choice, i) => {
             const chips = describeEffect(choice.effects);
             return (
               <button
                 key={choice.id}
                 type="button"
                 onClick={() => pick(choice)}
-                className="card-warm w-full text-left px-3.5 py-2.5 transition hover:brightness-[1.03] focus-visible:outline-2 focus-visible:outline-amber focus-visible:outline-offset-2"
+                className="card-warm tt-hand tt-card tt-card-lift relative w-full text-left pl-3.5 pr-9 py-2.5 focus-visible:outline-2 focus-visible:outline-amber focus-visible:outline-offset-2"
+                style={{ ['--tt-tilt' as string]: i % 2 === 0 ? '-0.35deg' : '0.35deg' }}
               >
-                <div className="text-[0.9rem] font-bold text-ink leading-snug">{choice.label}</div>
+                <div className="text-[0.94rem] font-extrabold text-ink leading-snug max-w-[52ch]">{choice.label}</div>
                 {choice.hint ? (
-                  <div className="text-[0.75rem] text-ink-faint leading-snug mt-0.5">{choice.hint}</div>
+                  <div className="text-[0.775rem] text-ink-soft leading-[1.45] mt-[3px] max-w-[56ch] opacity-95">
+                    {choice.hint}
+                  </div>
                 ) : null}
                 {chips.length > 0 && (
                   <div className="flex flex-wrap gap-1 mt-1.5">
-                    {chips.map((chip, i) => (
-                      <Chip key={`${chip.text}-${i}`} color={CHIP_COLOR[chip.tone]}>
+                    {chips.map((chip, k) => (
+                      <Chip key={`${chip.text}-${k}`} color={CHIP_COLOR[chip.tone]}>
                         <span aria-hidden>{chip.icon}</span>
                         {chip.text}
                       </Chip>
                     ))}
                   </div>
                 )}
+                <span
+                  aria-hidden
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-ink-faint text-[0.95rem] leading-none"
+                >
+                  ›
+                </span>
               </button>
             );
           })}
@@ -329,8 +444,8 @@ function IdentityStrip({ seed, line, accent }: { seed: PortraitSeed; line: strin
     <div
       className="flex items-center gap-2 rounded-full pl-1 pr-3 py-1 self-start max-w-full"
       style={{
-        background: 'color-mix(in oklab, var(--color-paper) 72%, transparent)',
-        border: `1px solid color-mix(in oklab, ${accent} 28%, transparent)`,
+        background: 'color-mix(in oklab, var(--color-paper) 82%, transparent)',
+        boxShadow: `inset 0 0 0 1px color-mix(in oklab, ${accent} 30%, transparent), inset 0 1px 0 rgba(255,253,246,0.7), 0 1px 2px -1px rgba(24,46,46,0.28)`,
       }}
     >
       <Portrait seed={seed} size={26} title={line} />

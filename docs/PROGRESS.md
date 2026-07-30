@@ -143,6 +143,53 @@ Also caught during setup: `tsconfig.json` had `baseUrl`, which TypeScript 7 remo
 was aborting on config parse and checking **nothing**. Every green typecheck before that fix was
 meaningless — worth knowing if you upgrade TypeScript under an older config.
 
+## Phase 7 — What playing it in someone else's hands found
+
+The build was "done" before this phase. Everything here came from a person actually sitting with
+it, and none of it was visible to typechecking or to the balance harness.
+
+**The day started running while the tour was up.** You cannot read a coach-mark against a moving
+schedule. The clock now waits while `tutorialStep >= 0`, and finishing or skipping the tour hands
+it back — so nobody is left staring at a paused day wondering what they broke.
+
+**Panels opened underneath the HUD strip**, hiding their own headers. Both now hang off a single
+`--hud-h` token so the bar and the panels cannot disagree.
+
+**Tooltips were clipped, and then ran off the page.** Two separate faults. The HUD sets
+`overflow-hidden` *and* establishes a stacking context via `backdrop-filter`, so a tooltip inside
+it was both cut off and trapped below the scene — fixed by portaling to `document.body`, the only
+reliable escape from an ancestor's clip, transform, filter or z-index. Then a tooltip on a control
+near the right edge hung off the viewport, which needed real placement logic: flip to the opposite
+side when the preferred one has no room, *then* clamp along the cross axis. That is fiddly enough
+to be worth extracting (`src/ui/anchor.ts`) and testing exhaustively — the sweep across every
+anchor position immediately caught that the clamp's `Math.max` has to come *after* the `Math.min`,
+or an oversized tooltip gets pushed off the right edge instead of pinning left.
+
+**"I selected a therapy option and now the game is stuck."** The most interesting bug of the
+build, and the one I did not fully solve.
+
+The symptom was diagnostic: *pause/play has no impact on time*. `tick()` refuses to advance while
+any event is pending, and that check ignores `paused` — so a freeze means a pending event with
+nothing on screen to resolve it. `App.tsx` decided what to mount using `!!p.techniqueCards` while
+the modals picked their subject using `.length > 0`, so an empty array would mount an overlay that
+renders nothing *and* suppress the event modal.
+
+But a stress harness driving 120 seeds × 45 days through the exact browser tick pattern found zero
+stalls, which means the engine does not currently produce that empty array — so that probably was
+not the reported freeze. Rather than keep guessing, the failure mode was made non-fatal:
+
+- The predicates moved into `src/sim/pending.ts` as a stated liveness contract, used by both the
+  mounting decision and the modals, so they cannot disagree.
+- A watchdog detects blocked-but-nothing-on-screen, logs what was pending, and resumes the clock.
+- An error boundary catches render failures, which present identically to a freeze. The sim lives
+  outside React, so its state is intact — the boundary offers retry, roll back to autosave, or
+  export the run.
+- `src/sim/stall.test.ts` guards the whole class: tick sizes, auto-pause on and off, a
+  fully-booked day, and "a resolved decision always hands the clock back".
+
+The honest summary is that the bug is now recoverable and diagnosable rather than definitively
+identified. If it recurs, the console names the pending event or the boundary shows the stack.
+
 ---
 
 ## What I would tell the next person
@@ -159,3 +206,14 @@ written at the same time.
 **The type contract paid for itself immediately.** Twenty-odd agents wrote against
 `src/sim/types.ts` concurrently with essentially no integration friction, because the contract was
 finished and detailed before any of them started.
+
+**Three tools, three blind spots.** The typechecker cannot see a 60-year-old referred for "Child
+Behavioral". The balance harness cannot see the same dilemma firing three mornings running. The
+narrated playtest cannot see a tooltip running off the right edge. Every class of bug in this
+project was found by exactly one of the three, and never by the other two — so "it typechecks and
+the curves are fine" is not evidence of much on its own.
+
+**Design commitments need structural enforcement, not discipline.** "No hidden punishments" only
+held because `SessionResult.reasons` carries the full explanation and `progressDelta` reports the
+*total* change. The moment those were computed separately from what the sim applied, the card
+started lying — quietly, and only sometimes.

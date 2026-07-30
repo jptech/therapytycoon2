@@ -30,6 +30,9 @@ const QUALITY_HINT: Record<
   poor: { word: 'Poor fit', steps: 1, color: 'var(--color-brick)' },
 };
 
+/** The card lifts and lights up before the room moves on. */
+const CHOOSE_BEAT_MS = 190;
+
 /** Openings for a client who brought nothing new in today. Stable per client/day. */
 const NEUTRAL_OPENINGS = [
   'They took the same chair as always and let the room settle.',
@@ -128,6 +131,7 @@ export function SessionOverlay() {
 
   const [focusIndex, setFocusIndex] = useState(0);
   const [activeIndex, setActiveIndex] = useState(0);
+  const [chosenId, setChosenId] = useState('');
   const buttons = useRef<(HTMLButtonElement | null)[]>([]);
   const focusRef = useRef(0);
   const chosen = useRef('');
@@ -139,6 +143,7 @@ export function SessionOverlay() {
     focusRef.current = 0;
     setFocusIndex(0);
     setActiveIndex(0);
+    setChosenId('');
     const id = window.setTimeout(() => buttons.current[0]?.focus(), 40);
     return () => window.clearTimeout(id);
   }, [instanceId]);
@@ -147,9 +152,15 @@ export function SessionOverlay() {
     (techniqueId: string) => {
       if (!instanceId || chosen.current) return;
       chosen.current = techniqueId;
-      dispatch({ type: 'CHOOSE_TECHNIQUE', instanceId, techniqueId });
+      setChosenId(techniqueId);
+      // Deliberately not cleaned up on unmount: this dispatch is the only thing
+      // that restarts the clock, so it must land even if the tree changes.
+      window.setTimeout(
+        () => dispatch({ type: 'CHOOSE_TECHNIQUE', instanceId, techniqueId }),
+        calm ? 0 : CHOOSE_BEAT_MS,
+      );
     },
-    [dispatch, instanceId],
+    [calm, dispatch, instanceId],
   );
 
   const move = useCallback(
@@ -193,72 +204,59 @@ export function SessionOverlay() {
   const whisper = cards[activeIndex]?.flavor ?? cards[focusIndex]?.flavor ?? '';
 
   return (
-    <Modal width={720} dismissable={false} labelledBy="session-overlay-title">
+    <Modal width={764} dismissable={false} labelledBy="session-overlay-title">
       {/* ── Who is in the room ─────────────────────────────────────────────── */}
-      <header className="px-5 pt-4 pb-3.5">
-        <div className="text-[0.6rem] font-extrabold uppercase tracking-[0.14em] text-ink-faint">
-          Day {ctx.day} · the middle of the hour
+      <header className="tt-session-head px-5 pt-2.5 pb-2.5">
+        <div className="flex items-baseline gap-2.5 flex-wrap">
+          <h2 id="session-overlay-title" className="display text-[1.32rem] leading-none text-ink">
+            In the room
+          </h2>
+          <span className="text-[0.6rem] font-extrabold uppercase tracking-[0.15em] text-ink-faint">
+            Day {ctx.day} · the middle of the hour
+          </span>
         </div>
-        <h2 id="session-overlay-title" className="display text-[1.5rem] leading-tight text-ink mt-0.5">
-          In the room
-        </h2>
 
-        <div className="mt-3.5 flex items-center gap-3">
-          <div className="flex items-center gap-2.5 min-w-0">
+        <div className="mt-2.5 flex items-center gap-3">
+          <div className="flex items-center gap-2.5 min-w-0 flex-1">
             {ctx.clientPortrait ? (
               <Portrait
                 seed={ctx.clientPortrait}
-                size={46}
+                size={44}
                 glow
                 mood={ctx.clientStability < 0.35 ? 'sad' : 'neutral'}
                 title={`${ctx.clientHandle}, age ${ctx.clientAge}`}
               />
             ) : null}
             <div className="min-w-0">
-              <div className="display text-[0.98rem] leading-tight text-ink truncate">
+              <div className="display text-[0.96rem] leading-tight text-ink truncate">
                 {ctx.clientHandle}
                 {ctx.hasClient ? <span className="text-ink-faint font-normal"> · {ctx.clientAge}</span> : null}
               </div>
               {ctx.hasClient ? (
-                <>
-                  <div className="text-[0.72rem] text-ink-soft leading-tight truncate">
-                    {ctx.clientSeverity} {ctx.clientCondition}
-                  </div>
-                  <div className="mt-1">
-                    <Chip color="var(--color-amber-deep)">Chapter · {ctx.clientChapter}</Chip>
-                  </div>
-                </>
+                <div className="text-[0.71rem] text-ink-soft leading-tight truncate">
+                  {ctx.clientSeverity} {ctx.clientCondition}
+                  <span className="text-ink-faint"> · {ctx.clientChapter}</span>
+                </div>
               ) : null}
             </div>
           </div>
 
-          <div className="flex-1 flex items-center gap-2 px-1 min-w-[2rem]" aria-hidden>
-            <div
-              className="h-px flex-1"
-              style={{
-                background:
-                  'repeating-linear-gradient(90deg, color-mix(in oklab, var(--color-ink) 22%, transparent) 0 4px, transparent 4px 8px)',
-              }}
-            />
-            <span className={`text-[0.9rem] leading-none ${calm ? '' : 'animate-flicker'}`}>🕯️</span>
-            <div
-              className="h-px flex-1"
-              style={{
-                background:
-                  'repeating-linear-gradient(90deg, color-mix(in oklab, var(--color-ink) 22%, transparent) 0 4px, transparent 4px 8px)',
-              }}
-            />
+          {/* the candle between them */}
+          <div className="flex items-center gap-2 px-1 shrink-0 w-[132px]" aria-hidden>
+            <div className="h-px flex-1" style={{ background: STITCH }} />
+            <span className={`text-[0.92rem] leading-none ${calm ? '' : 'animate-flicker'}`}>🕯️</span>
+            <div className="h-px flex-1" style={{ background: STITCH }} />
           </div>
 
-          <div className="flex items-center gap-2.5 min-w-0 text-right">
+          <div className="flex items-center gap-2.5 min-w-0 flex-1 justify-end text-right">
             <div className="min-w-0">
-              <div className="display text-[0.98rem] leading-tight text-ink truncate">{ctx.therapistName}</div>
-              <div className="text-[0.72rem] text-ink-soft leading-tight truncate">{ctx.therapistModality}</div>
+              <div className="display text-[0.96rem] leading-tight text-ink truncate">{ctx.therapistName}</div>
+              <div className="text-[0.71rem] text-ink-soft leading-tight truncate">{ctx.therapistModality}</div>
             </div>
             {ctx.therapistPortrait ? (
               <Portrait
                 seed={ctx.therapistPortrait}
-                size={46}
+                size={44}
                 mood={ctx.therapistEnergyPct < 0.3 ? 'tired' : 'neutral'}
                 title={ctx.therapistName}
               />
@@ -268,8 +266,8 @@ export function SessionOverlay() {
       </header>
 
       {/* ── What the hour is asking for ────────────────────────────────────── */}
-      <div className="px-5 pb-3.5">
-        <div className="paper-flat px-3.5 py-3">
+      <div className="px-5 pb-2.5">
+        <div className="paper-flat px-3.5 py-2">
           <div className="flex flex-wrap items-center gap-1.5">
             {ctx.hasClient ? (
               <>
@@ -290,10 +288,10 @@ export function SessionOverlay() {
             <Chip color={focusProfile.color}>
               {focusProfile.icon} {focusProfile.name}
             </Chip>
+            <span className="text-[0.73rem] text-ink-faint leading-snug min-w-0">{focusProfile.blurb}</span>
           </div>
-          <p className="text-[0.76rem] text-ink-faint leading-snug mt-1.5">{focusProfile.blurb}</p>
-          <p className="text-[0.85rem] text-ink-soft leading-relaxed mt-2 italic">
-            <span className="not-italic text-[0.6rem] font-extrabold uppercase tracking-[0.12em] text-ink-faint mr-1.5">
+          <p className="text-[0.85rem] text-ink-soft leading-[1.5] mt-1.5 italic">
+            <span className="not-italic text-[0.58rem] font-extrabold uppercase tracking-[0.13em] text-ink-faint mr-1.5 align-[0.1em]">
               {ctx.broughtInIsToday ? 'Today' : 'The room'}
             </span>
             {ctx.broughtIn}
@@ -302,14 +300,18 @@ export function SessionOverlay() {
       </div>
 
       {/* ── The deck ───────────────────────────────────────────────────────── */}
-      <div className="px-5 pb-2">
-        <div className="text-[0.6rem] font-extrabold uppercase tracking-[0.12em] text-ink-faint mb-2">
+      <div className="px-5 pb-1.5">
+        <div className="text-[0.6rem] font-extrabold uppercase tracking-[0.13em] text-ink-faint mb-1.5">
           What do you reach for?{' '}
           <span className="normal-case tracking-normal font-bold text-ink-faint/75">
             Press 1–{cards.length}, or move with the arrow keys.
           </span>
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3" role="group" aria-label="Technique choices">
+        <div
+          className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 auto-rows-fr"
+          role="group"
+          aria-label="Technique choices"
+        >
           {cards.map((card, i) => (
             <TechniqueCardFace
               key={card.techniqueId}
@@ -317,6 +319,9 @@ export function SessionOverlay() {
               index={i}
               focused={focusIndex === i}
               calm={calm}
+              chosen={chosenId === card.techniqueId}
+              dimmed={!!chosenId && chosenId !== card.techniqueId}
+              wide={cards.length % 2 === 1 && i === cards.length - 1}
               onChoose={() => choose(card.techniqueId)}
               onActivate={() => setActiveIndex(i)}
               onFocus={() => {
@@ -333,8 +338,15 @@ export function SessionOverlay() {
       </div>
 
       {/* ── The whisper ────────────────────────────────────────────────────── */}
-      <footer className="px-5 pt-2 pb-4">
-        <div className="border-t hairline pt-2.5 min-h-[2.4rem] flex items-center justify-center">
+      <footer className="px-5 pt-1.5 pb-3">
+        <div
+          className="pt-2 min-h-[1.75rem] flex items-center justify-center"
+          style={{
+            backgroundImage: WHISPER_RULE,
+            backgroundRepeat: 'no-repeat',
+            backgroundSize: '100% 1px',
+          }}
+        >
           <p className="display italic text-[0.82rem] text-ink-faint text-center leading-snug max-w-[62ch]">
             {whisper ? `“${whisper}”` : 'Whatever you choose, the hour is already half gone.'}
           </p>
@@ -344,6 +356,12 @@ export function SessionOverlay() {
   );
 }
 
+const STITCH =
+  'repeating-linear-gradient(90deg, color-mix(in oklab, var(--color-ink) 24%, transparent) 0 4px, transparent 4px 8px)';
+
+const WHISPER_RULE =
+  'linear-gradient(90deg, transparent 0%, color-mix(in oklab, var(--color-ink) 14%, transparent) 22%, color-mix(in oklab, var(--color-ink) 14%, transparent) 78%, transparent 100%)';
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 function TechniqueCardFace({
@@ -351,6 +369,9 @@ function TechniqueCardFace({
   index,
   focused,
   calm,
+  chosen,
+  dimmed,
+  wide,
   onChoose,
   onActivate,
   onFocus,
@@ -360,6 +381,9 @@ function TechniqueCardFace({
   index: number;
   focused: boolean;
   calm: boolean;
+  chosen: boolean;
+  dimmed: boolean;
+  wide: boolean;
   onChoose: () => void;
   onActivate: () => void;
   onFocus: () => void;
@@ -380,35 +404,51 @@ function TechniqueCardFace({
       onFocus={onFocus}
       tabIndex={0}
       aria-keyshortcuts={String(index + 1)}
-      className={`card-warm relative text-left overflow-hidden p-0 transition-[transform,box-shadow,filter] duration-200 focus:outline-none ${
-        calm ? '' : 'hover:-translate-y-[3px]'
-      }`}
+      className={[
+        'card-warm tt-hand tt-card relative text-left overflow-hidden p-0 focus:outline-none',
+        wide ? 'sm:col-span-2' : '',
+        calm ? '' : 'tt-card-lift tt-deal',
+        chosen ? 'tt-card-chosen' : '',
+        dimmed ? 'tt-card-faded' : '',
+      ]
+        .filter(Boolean)
+        .join(' ')}
       style={{
-        boxShadow: focused
-          ? `0 0 0 2px var(--color-amber), var(--shadow-lamp)`
-          : undefined,
+        // Alternating tilt so the deck reads as hand-laid rather than snapped
+        // to a grid. Purely a hover transform — nothing animates at rest.
+        ['--tt-tilt' as string]: index % 2 === 0 ? '-0.55deg' : '0.55deg',
+        animationDelay: calm ? undefined : `${index * 55}ms`,
+        boxShadow: focused && !chosen ? `0 0 0 2px var(--color-amber), var(--tt-shadow-2)` : undefined,
       }}
     >
-      {/* modality colour bar */}
-      <div className="h-[5px] w-full" style={{ background: color }} aria-hidden />
+      {/* the modality spine, lit from the top */}
+      <span
+        aria-hidden
+        className="absolute inset-y-0 left-0 w-[5px]"
+        style={{
+          background: `linear-gradient(180deg, color-mix(in oklab, ${color} 62%, white) 0%, ${color} 34%, color-mix(in oklab, ${color} 82%, black) 100%)`,
+          boxShadow: `1px 0 0 color-mix(in oklab, ${color} 34%, transparent), 2px 0 6px -2px color-mix(in oklab, ${color} 40%, transparent)`,
+        }}
+      />
 
-      <div className="px-3.5 pt-2.5 pb-3">
+      <div className="pl-[0.95rem] pr-3 pt-2 pb-2.5">
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
             <div
-              className="text-[0.58rem] font-extrabold uppercase tracking-[0.11em] truncate"
+              className="text-[0.56rem] font-extrabold uppercase tracking-[0.12em] truncate"
               style={{ color: `color-mix(in oklab, ${color} 72%, var(--color-ink))` }}
             >
               {modality?.name ?? card.modality}
             </div>
-            <h3 className="display text-[1.04rem] leading-tight text-ink mt-0.5">{card.name}</h3>
+            <h3 className="display text-[1.02rem] leading-[1.15] text-ink mt-[1px]">{card.name}</h3>
           </div>
           <span
-            className="tabular shrink-0 w-5 h-5 grid place-items-center rounded-md text-[0.68rem] font-bold"
+            className="tabular shrink-0 w-[18px] h-[18px] grid place-items-center rounded-[5px] text-[0.64rem] font-bold"
             style={{
-              background: 'color-mix(in oklab, var(--color-ink) 8%, transparent)',
+              background: 'color-mix(in oklab, var(--color-ink) 7%, transparent)',
               color: 'var(--color-ink-faint)',
-              border: '1px solid color-mix(in oklab, var(--color-ink) 14%, transparent)',
+              boxShadow:
+                'inset 0 0 0 1px color-mix(in oklab, var(--color-ink) 15%, transparent), inset 0 1px 0 rgba(255,253,246,0.7)',
             }}
             aria-hidden
           >
@@ -416,74 +456,80 @@ function TechniqueCardFace({
           </span>
         </div>
 
-        <p className="text-[0.75rem] text-ink-soft leading-snug mt-1.5">{card.blurb}</p>
+        <p className="text-[0.73rem] text-ink-soft leading-[1.35] mt-1 line-clamp-2">{card.blurb}</p>
 
-        {/* ── Preview ─────────────────────────────────────────────────────── */}
+        {/* ── Fit: the loudest thing on the card ──────────────────────────── */}
         <div
-          className="mt-2.5 rounded-[10px] px-2.5 py-2"
+          className="mt-1.5 inline-flex w-fit items-center gap-2 rounded-[8px] px-2 py-[4px]"
           style={{
-            background: 'color-mix(in oklab, var(--color-paper-deep) 45%, transparent)',
-            border: '1px solid color-mix(in oklab, var(--color-ink) 10%, transparent)',
+            background: `color-mix(in oklab, ${hint.color} 12%, transparent)`,
+            boxShadow: `inset 0 0 0 1px color-mix(in oklab, ${hint.color} 32%, transparent), inset 0 1px 0 rgba(255,253,246,0.55)`,
           }}
         >
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-[0.58rem] font-extrabold uppercase tracking-[0.11em] text-ink-faint">Fit</span>
-            <div className="flex items-center gap-1.5">
-              <span className="flex items-center gap-[3px]" aria-hidden>
-                {[0, 1, 2, 3].map((s) => (
-                  <span
-                    key={s}
-                    className="block w-3 h-[5px] rounded-full"
-                    style={{
-                      background:
-                        s < hint.steps ? hint.color : 'color-mix(in oklab, var(--color-ink) 13%, transparent)',
-                    }}
-                  />
-                ))}
-              </span>
-              <span className="text-[0.72rem] font-bold" style={{ color: hint.color }}>
-                {hint.word}
-              </span>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-3 gap-1.5 mt-2">
-            <PreviewCell label="Progress" value={card.preview.progressHint} color="var(--color-sage-deep)" />
-            <PreviewCell label="Energy" value={`−${card.preview.energyCost}`} color="var(--color-plum-deep)" />
-            <PreviewCell
-              label="Regression"
-              value={`${regPct}%`}
-              color={risky ? 'var(--color-brick)' : 'var(--color-ink-soft)'}
-              warn={risky}
-            />
-          </div>
-
-          {card.preview.notes.length > 0 && (
-            <ul className="mt-2 space-y-0.5">
-              {card.preview.notes.map((note) => {
-                const tone = noteTone(note);
-                const dot =
-                  tone === 'bad'
-                    ? 'var(--color-brick)'
-                    : tone === 'good'
-                      ? 'var(--color-sage-deep)'
-                      : 'var(--color-ink-faint)';
-                return (
-                  <li key={note} className="flex items-start gap-1.5 text-[0.7rem] leading-snug">
-                    <span
-                      className="mt-[6px] w-[5px] h-[5px] rounded-full shrink-0"
-                      style={{ background: dot }}
-                      aria-hidden
-                    />
-                    <span style={{ color: tone === 'bad' ? 'var(--color-brick)' : 'var(--color-ink-soft)' }}>
-                      {note}
-                    </span>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
+          <span className="flex items-center gap-[3px] shrink-0" aria-hidden>
+            {[0, 1, 2, 3].map((s) => (
+              <span
+                key={s}
+                className="block w-[11px] h-[6px] rounded-full"
+                style={
+                  s < hint.steps
+                    ? {
+                        background: `linear-gradient(180deg, color-mix(in oklab, ${hint.color} 55%, white) 0%, ${hint.color} 100%)`,
+                        boxShadow: `0 1px 1px -1px ${hint.color}`,
+                      }
+                    : {
+                        background: 'color-mix(in oklab, var(--color-ink) 11%, transparent)',
+                        boxShadow: 'inset 0 1px 1px color-mix(in oklab, var(--color-ink) 16%, transparent)',
+                      }
+                }
+              />
+            ))}
+          </span>
+          <span
+            className="text-[0.82rem] font-extrabold leading-none tracking-[-0.005em]"
+            style={{ color: hint.color, textShadow: '0 1px 0 rgba(255,253,246,0.7)' }}
+          >
+            {hint.word}
+          </span>
         </div>
+
+        {/* ── Preview — every figure exactly as the sim gave it ───────────── */}
+        <div className="grid grid-cols-3 gap-1.5 mt-1.5">
+          <PreviewCell label="Progress" value={card.preview.progressHint} color="var(--color-sage-deep)" />
+          <PreviewCell label="Energy" value={`−${card.preview.energyCost}`} color="var(--color-plum-deep)" />
+          <PreviewCell
+            label="Regression"
+            value={`${regPct}%`}
+            color={risky ? 'var(--color-brick)' : 'var(--color-ink-soft)'}
+            warn={risky}
+          />
+        </div>
+
+        {card.preview.notes.length > 0 && (
+          <ul className="mt-1.5 flex flex-wrap gap-x-2.5 gap-y-[2px]">
+            {card.preview.notes.map((note) => {
+              const tone = noteTone(note);
+              const dot =
+                tone === 'bad'
+                  ? 'var(--color-brick)'
+                  : tone === 'good'
+                    ? 'var(--color-sage-deep)'
+                    : 'var(--color-ink-faint)';
+              return (
+                <li key={note} className="flex items-baseline gap-1 text-[0.67rem] leading-[1.3]">
+                  <span
+                    className="translate-y-[-1px] w-[5px] h-[5px] rounded-full shrink-0"
+                    style={{ background: dot }}
+                    aria-hidden
+                  />
+                  <span style={{ color: tone === 'bad' ? 'var(--color-brick)' : 'var(--color-ink-soft)' }}>
+                    {note}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        )}
       </div>
     </button>
   );
@@ -502,20 +548,25 @@ function PreviewCell({
 }) {
   return (
     <div
-      className="rounded-lg px-1.5 py-1"
+      className="rounded-[7px] px-1.5 py-[3px]"
       style={
         warn
           ? {
-              background: 'color-mix(in oklab, var(--color-brick) 12%, transparent)',
-              border: '1px solid color-mix(in oklab, var(--color-brick) 26%, transparent)',
+              background: 'color-mix(in oklab, var(--color-brick) 11%, transparent)',
+              boxShadow:
+                'inset 0 0 0 1px color-mix(in oklab, var(--color-brick) 28%, transparent), inset 0 1px 0 rgba(255,253,246,0.5)',
             }
-          : { background: 'color-mix(in oklab, var(--color-paper) 70%, transparent)' }
+          : {
+              background: 'color-mix(in oklab, var(--color-paper-deep) 42%, transparent)',
+              boxShadow:
+                'inset 0 0 0 1px color-mix(in oklab, var(--color-ink) 9%, transparent), inset 0 1px 0 rgba(255,253,246,0.6)',
+            }
       }
     >
-      <div className="text-[0.53rem] font-extrabold uppercase tracking-[0.1em] text-ink-faint leading-none">
+      <div className="text-[0.52rem] font-extrabold uppercase tracking-[0.1em] text-ink-faint leading-none">
         {label}
       </div>
-      <div className="tabular text-[0.76rem] font-bold leading-tight mt-0.5" style={{ color }}>
+      <div className="tabular text-[0.76rem] font-bold leading-tight mt-[2px]" style={{ color }}>
         {value}
       </div>
     </div>

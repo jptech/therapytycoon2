@@ -27,6 +27,7 @@ src/
     eventsys.ts     event selection, requirements, effect application
     generators.ts   procedural clients, therapists, candidates, portraits
     engine.ts       the Game object: the reducer and the day loop
+    pending.ts      which pending event owns the clock — a liveness contract
     save.ts         versioned saves, migrations, autosave ring, export/import
     util.ts         clamps, formatters, softGain
 
@@ -80,6 +81,40 @@ during render.
 
 The clock is a single `requestAnimationFrame` loop in the store that converts real milliseconds
 into game minutes at the current speed and dispatches `TICK`. It is the only thing driving time.
+
+### Liveness: which modal owns the clock
+
+`tick()` refuses to advance time while any event is pending — deliberately, so a decision can
+never be skipped. The cost of that design is that **a pending event nobody renders freezes the
+game outright**, and silently: pause/play has no effect, because pause is not what is blocking it.
+
+`src/sim/pending.ts` is therefore the single source of truth. `pendingDecision()` and
+`pendingChoice()` are used by `App.tsx` to decide what to mount *and* by the modals to pick their
+subject, so the two can never disagree about whose turn it is. They live in the sim rather than
+the UI because whether the clock can advance is a liveness contract, not a presentation detail —
+and so `src/sim/stall.test.ts` can assert on them without importing React.
+
+Two backstops sit on top:
+
+- **A watchdog** in `App.tsx` detects the blocked-but-nothing-on-screen state, logs what was
+  pending, drops it and resumes the clock.
+- **An error boundary** (`src/ui/ErrorBoundary.tsx`) catches render failures, which present
+  identically to a freeze. Because the simulation lives outside React its state is intact when
+  this fires, so the boundary offers retry, roll back to the last autosave, or export the run.
+
+If you add a new kind of blocking modal, add its predicate to `pending.ts` and extend the
+liveness tests. Do not inline the check in a component.
+
+### Floating UI
+
+`src/ui/anchor.ts` positions tooltips and popovers: it flips to the opposite side when the
+preferred one has no room, then clamps into the viewport. It is pure and viewport-agnostic so it
+is unit tested without a DOM.
+
+Tooltips render into a **portal on `document.body`**. The HUD strip clips its overflow and
+establishes a stacking context via `backdrop-filter`, so anything positioned inside it was both
+cut off and trapped below the scene. A portal is the only reliable escape from an ancestor's
+clip, transform, filter or z-index — if you build another floating element, do the same.
 
 ### One sanctioned exception
 

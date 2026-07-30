@@ -11,19 +11,28 @@
  * this file readable and resolution independent.
  */
 
-import { Application, Container, Graphics, Sprite, Text } from 'pixi.js';
+import { Application, Container, Graphics, Sprite, Text, TilingSprite } from 'pixi.js';
 import { DAY_LENGTH_MINUTES, SLOT_MINUTES } from '../sim/balance';
 import type { GameState, PortraitSeed, ScheduledSession, SessionResult } from '../sim/types';
+// Read-only authored content: which school a therapist practises from decides
+// which prop stands in their room.
+import { modalityById } from '../content';
 import {
+  DEG,
   PAL,
   SEAT_HEIGHT,
   animatePerson,
+  beamTexture,
+  coneTexture,
+  coreTexture,
+  createCat,
   createPerson,
   darken,
   drawArmchair,
   drawBookshelf,
   drawCoatRack,
   drawCoffeeMachine,
+  drawContactShadow,
   drawCouch,
   drawDeskLamp,
   drawDoorPanel,
@@ -31,6 +40,7 @@ import {
   drawFloorLamp,
   drawFrontDoor,
   drawLowTable,
+  drawModalityProp,
   drawPlant,
   drawReceptionDesk,
   drawRug,
@@ -43,6 +53,8 @@ import {
   drawWindowPanes,
   dotTexture,
   glowTexture,
+  grainTexture,
+  hash01,
   lampHeadY,
   lighten,
   makeGlow,
@@ -51,10 +63,18 @@ import {
   petalTexture,
   rampColor,
   rampValue,
+  setCatPose,
   setPersonFacing,
   setPersonPose,
+  setPersonProp,
+  sideShadeTexture,
   skyTexture,
+  vignetteTexture,
+  wobble,
+  type CatPose,
+  type CatRig,
   type PersonMode,
+  type PersonProp,
   type PersonRig,
 } from './sprites';
 
@@ -113,6 +133,42 @@ const SKY_COLOR = [
   { t: 0.58, c: 0xdccfa9 },
   { t: 0.82, c: 0xcf8f60 },
   { t: 1.0, c: 0x4f4a63 },
+];
+
+/**
+ * The daylight a window throws onto the floor. This is the transition the whole
+ * "lamplit clinic" idea hangs off: a long cool parallelogram at eight, short
+ * and white by noon, gold and lengthening at four, then cold blue at dusk as
+ * the lamps take the room over.
+ */
+const DAY_COLOR = [
+  { t: 0.0, c: 0xcfe2f2 },
+  { t: 0.26, c: 0xfff6e4 },
+  { t: 0.55, c: 0xffeec6 },
+  { t: 0.78, c: 0xffc989 },
+  { t: 0.92, c: 0xc79ab0 },
+  { t: 1.0, c: 0x7d95c4 },
+];
+const DAY_ALPHA = [
+  { t: 0.0, v: 0.2 },
+  { t: 0.16, v: 0.34 },
+  { t: 0.5, v: 0.34 },
+  { t: 0.76, v: 0.26 },
+  { t: 0.9, v: 0.11 },
+  { t: 1.0, v: 0.045 },
+];
+/** How far the shaft leans: the sun crosses from one side to the other. */
+const DAY_SKEW = [
+  { t: 0.0, v: 0.72 },
+  { t: 0.5, v: 0.06 },
+  { t: 1.0, v: -0.62 },
+];
+/** How wide the pool is: broad at a low sun, tight at noon. */
+const DAY_SPREAD = [
+  { t: 0.0, v: 1.5 },
+  { t: 0.5, v: 0.86 },
+  { t: 0.82, v: 1.24 },
+  { t: 1.0, v: 1.6 },
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -179,6 +235,8 @@ interface Actor {
   wantSeat: Seat | null;
   facing: 1 | -1;
   sleepy: boolean;
+  /** Radians of forward lean — two people in session lean toward each other. */
+  lean: number;
   wanderAt: number;
   /** Seconds left of the goodbye wave. */
   waveT: number;
@@ -190,15 +248,61 @@ interface Actor {
   alphaTarget: number;
 }
 
+/**
+ * A lamp is never one sprite. A believable one is a tight bright core, a wide
+ * soft halo, and — for the lamps that are actual objects rather than a room's
+ * ambient wash — a shaft under the shade and a pool on the floorboards that
+ * lengthens as the day gets later.
+ */
 interface LampView {
-  sprite: Sprite;
+  halo: Sprite;
+  core: Sprite;
+  cone: Sprite | null;
+  pool: Sprite | null;
+  /** Peak alpha of the halo; core and pool are scaled off it. */
   base: number;
+  /** Un-stretched pool width, in design units. */
+  poolW: number;
   seed: number;
+}
+
+/** A shaft of daylight from one window, skewed and tinted by the clock. */
+interface BeamView {
+  sprite: Sprite;
+  /** Width of the glass — the beam is never wider than what it comes through. */
+  w: number;
+  /** Distance from the sill to the floorboards. */
+  drop: number;
+}
+
+/**
+ * Two overlays per room. The vignette drops the corners away; the side shade
+ * darkens whichever half of the room the lamp isn't on, which is what makes a
+ * room read as lit BY something rather than tinted as a whole.
+ */
+interface RoomShade {
+  vignette: Sprite;
+  side: Sprite;
 }
 
 interface PlantView {
   holder: Container;
   phase: number;
+  /** Bigger plants swing further and slower — the physics of a tall stem. */
+  amp: number;
+  rate: number;
+}
+
+/** The office cat: walks the waiting room, sits, and eventually curls up. */
+interface CatState {
+  rig: CatRig;
+  x: number;
+  y: number;
+  dir: 1 | -1;
+  pose: CatPose;
+  /** Seconds left in the current pose. */
+  hold: number;
+  targetX: number;
 }
 
 interface Petal {
@@ -216,6 +320,9 @@ interface Wisp {
   vy: number;
   life: number;
   max: number;
+  /** Own phase and frequency, so a plume curls instead of marching upward. */
+  phase: number;
+  curl: number;
 }
 
 interface Mote {
@@ -248,9 +355,13 @@ export class OfficeWorld {
   private doorLayer = new Container();
   private charLayer = new Container();
   private labelLayer = new Container();
+  /** Per-room falloff, over everything in the room including the people in it. */
+  private shadeLayer = new Container();
   private tint = new Graphics();
   private lightLayer = new Container();
   private fxLayer = new Container();
+  /** Paper grain, in screen space, over the lot. */
+  private grain: TilingSprite | null = null;
 
   // Screen + design geometry.
   private screenW = 1;
@@ -270,8 +381,11 @@ export class OfficeWorld {
   private breakRoom: Room | null = null;
   private doors: DoorView[] = [];
   private lamps: LampView[] = [];
+  private beams: BeamView[] = [];
+  private shades: RoomShade[] = [];
   private plants: PlantView[] = [];
   private labels: Text[] = [];
+  private cat: CatState | null = null;
   private stairX = WALL + U_WAIT + WALL + U_HALL / 2;
   private floorCount = 1;
   /** Therapists beyond the six rooms we draw; surfaced as a "+N more" wing. */
@@ -309,6 +423,9 @@ export class OfficeWorld {
       this.doorLayer,
       this.charLayer,
       this.labelLayer,
+      // Last, so the far corner of a room takes the people standing in it down
+      // with it rather than leaving them cut out and glowing.
+      this.shadeLayer,
     );
 
     // A single white rect we recolour by tint/alpha — never re-tessellated.
@@ -316,6 +433,18 @@ export class OfficeWorld {
     this.tint.alpha = 0;
 
     this.root.addChild(this.skyLayer, this.world, this.tint, this.lightLayer, this.fxLayer);
+
+    // Paper grain over the whole frame. Static, one draw call, and the single
+    // cheapest thing in the scene that stops flat fills reading as UI.
+    const grainTex = grainTexture();
+    if (grainTex) {
+      const grain = new TilingSprite({ texture: grainTex, width: 4, height: 4 });
+      grain.alpha = 0.5;
+      grain.eventMode = 'none';
+      this.grain = grain;
+      this.root.addChild(grain);
+    }
+
     app.stage.addChild(this.root);
 
     // Characters are depth-sorted by floor then x so nobody pops in front of a
@@ -351,6 +480,10 @@ export class OfficeWorld {
     this.tint.scale.set(width, height);
     this.sky.width = width;
     this.sky.height = Math.max(height, 2);
+    if (this.grain) {
+      this.grain.width = width;
+      this.grain.height = height;
+    }
     this.drawSkyline();
     this.drawStars();
   }
@@ -416,6 +549,7 @@ export class OfficeWorld {
     this.updateActors(dt, state, reduced);
     this.updateDoors(dt, state);
     this.updatePlants(dt, reduced);
+    this.updateCat(dt, calm, reduced);
     this.updateFx(dt, state, calm, reduced);
   }
 
@@ -483,6 +617,10 @@ export class OfficeWorld {
     this.labels = [];
     this.actors.clear();
     this.occupied.clear();
+    this.cat = null;
+    this.lamps = [];
+    this.beams = [];
+    this.shades = [];
     this.root.destroy({ children: true });
   }
 
@@ -607,8 +745,9 @@ export class OfficeWorld {
     this.drawShell(state, floors, overflow);
     this.drawFurniture(state);
     this.buildDoors();
-    this.buildLamps();
+    this.buildLights();
     this.buildPlants(this.plantCount(state));
+    this.buildCat();
     this.drawSkyline();
     this.drawStars();
 
@@ -727,17 +866,55 @@ export class OfficeWorld {
                   ? mix(PAL.paperWarm, PAL.woodDeep, 0.14)
                   : PAL.paper;
       g.rect(room.x, room.y, room.w, room.h).fill(wall);
+      // Paint is never one flat value: it darkens toward the skirting where
+      // less light reaches it. Eight bands is plenty to read as a gradient.
+      const bands = 8;
+      for (let b = 0; b < bands; b++) {
+        const t = b / (bands - 1);
+        const by = room.y + (room.h - BOARD) * (b / bands);
+        const bh = (room.h - BOARD) / bands + 0.6;
+        g.rect(room.x, by, room.w, bh).fill({ color: PAL.ink, alpha: 0.012 + t * t * 0.055 });
+      }
       // Subtle inner shadows: a band under the ceiling and down both walls.
       g.rect(room.x, room.y, room.w, 9).fill({ color: PAL.ink, alpha: 0.09 });
       g.rect(room.x, room.y, 6, room.h).fill({ color: PAL.ink, alpha: 0.06 });
       g.rect(room.x + room.w - 6, room.y, 6, room.h).fill({ color: PAL.ink, alpha: 0.06 });
-      // Floorboards + baseboard.
+
+      // ── Floorboards ────────────────────────────────────────────────────────
+      // Board by board, each with its own slightly wrong tone and its own
+      // slightly wrong width, so the floor reads as sawn timber. All of it is
+      // hashed off the board's position, so it is identical every rebuild.
       g.rect(room.x, room.floorY, room.w, BOARD).fill(PAL.wood);
-      g.rect(room.x, room.floorY, room.w, 2).fill({ color: PAL.woodDeep, alpha: 0.5 });
-      for (let bx = room.x + 22; bx < room.x + room.w; bx += 26) {
-        g.rect(bx, room.floorY + 2.5, 1, BOARD - 3).fill({ color: PAL.woodDeep, alpha: 0.28 });
+      let bx = room.x;
+      let bi = 0;
+      while (bx < room.x + room.w) {
+        const bw = Math.min(20 + hash01(bx, room.index, 31) * 12, room.x + room.w - bx);
+        const tone = hash01(bx, room.index, 32);
+        g.rect(bx, room.floorY, bw, BOARD).fill({
+          color: tone > 0.5 ? lighten(PAL.wood, (tone - 0.5) * 0.22) : darken(PAL.wood, (0.5 - tone) * 0.2),
+        });
+        // The seam between boards, and a grain line down the middle of some.
+        g.rect(bx + bw - 0.9, room.floorY + 1.6, 0.9, BOARD - 2).fill({
+          color: PAL.woodDeep,
+          alpha: 0.3,
+        });
+        if (bi % 3 === 0) {
+          g.rect(bx + bw * 0.42, room.floorY + 3.2, bw * 0.3, 0.6).fill({
+            color: PAL.woodDeep,
+            alpha: 0.2,
+          });
+        }
+        bx += bw;
+        bi++;
       }
-      g.rect(room.x, room.floorY - 4, room.w, 4).fill({ color: PAL.paperDeep, alpha: 0.9 });
+      // The lit front lip of the boards, and the shadow the wall casts on them.
+      g.rect(room.x, room.floorY, room.w, 1.6).fill({ color: PAL.ink, alpha: 0.14 });
+      g.rect(room.x, room.floorY + BOARD - 1.2, room.w, 1.2).fill({ color: 0xffffff, alpha: 0.16 });
+
+      // ── Skirting board ─────────────────────────────────────────────────────
+      g.rect(room.x, room.floorY - 5, room.w, 5).fill({ color: PAL.paperDeep, alpha: 0.95 });
+      g.rect(room.x, room.floorY - 5, room.w, 1).fill({ color: 0xffffff, alpha: 0.4 });
+      g.rect(room.x, room.floorY - 1.2, room.w, 1.2).fill({ color: PAL.ink, alpha: 0.16 });
     }
 
     // Stairwell: one switchback flight filling the shared hall cell. The slab
@@ -804,20 +981,26 @@ export class OfficeWorld {
   private drawFurniture(state: GameState): void {
     const g = this.propsG;
     g.clear();
+    const modalityOf = (id: string | undefined): string | null => {
+      if (!id) return null;
+      const t = state.therapists.find((x) => x.id === id);
+      return t ? t.modality : null;
+    };
 
     for (const room of this.rooms) {
       const f = room.floorY;
       switch (room.kind) {
         case 'waiting': {
           // Reading left to right: front door, reception, coats, chairs, table.
-          withOffset(g, room.x + 24, f, () => drawFrontDoor(g, 30, 74));
+          withProp(g, room.x + 24, f, 1, () => drawFrontDoor(g, 30, 74));
           withOffset(g, room.x + 92, f, () => drawReceptionDesk(g, 74));
-          withOffset(g, room.x + 116, f - 26, () => drawDeskLamp(g));
-          withOffset(g, room.x + 146, f, () => drawCoatRack(g, 58));
+          withProp(g, room.x + 116, f - 26, 2, () => drawDeskLamp(g));
+          withProp(g, room.x + 146, f, 3, () => drawCoatRack(g, 58));
           for (const s of room.seats.filter((s) => s.role === 'wait')) {
-            withOffset(g, s.x, f, () => drawSideChair(g, 1));
+            // Nobody ever pushes a waiting-room chair back exactly square.
+            withProp(g, s.x, f, 4, () => drawSideChair(g, 1));
           }
-          withOffset(g, room.x + 292, f, () => drawLowTable(g, 40));
+          withProp(g, room.x + 292, f, 5, () => drawLowTable(g, 40));
           withOffset(g, room.x + 322, f, () => drawWaterCooler(g));
           drawWindowFrame(g, room.x + 14, f - 68, 20, 20, true);
           drawWallArt(g, room.x + 190, room.y + 32, 36, 27, PAL.sage);
@@ -826,25 +1009,37 @@ export class OfficeWorld {
         }
         case 'therapy': {
           const rugColor = mix(PAL.brick, PAL.paperDeep, 0.35);
-          withOffset(g, room.x + 102, f + 5, () => drawRug(g, 116, rugColor));
-          withOffset(g, room.x + 66, f, () => drawArmchair(g, 1, mix(PAL.sage, PAL.paperDeep, 0.25)));
-          withOffset(g, room.x + 138, f, () => drawArmchair(g, -1, mix(PAL.plum, PAL.paperDeep, 0.3)));
-          withOffset(g, room.x + 168, f, () => drawFloorLamp(g, 64));
+          withOffset(g, room.x + 102, f + 5, () => drawRug(g, 116, rugColor, room.index));
+          // The modality prop goes in first so the chairs overlap it — the
+          // occlusion is what gives the room any sense of depth at all.
+          const modality = modalityOf(room.therapistId);
+          if (modality) {
+            const accent = hexToInt(modalityById[modality]?.color) ?? PAL.sage;
+            withProp(g, room.x + 38, f, 6, () => drawModalityProp(g, modality, accent));
+          }
+          withProp(g, room.x + 66, f, 7, () => drawArmchair(g, 1, mix(PAL.sage, PAL.paperDeep, 0.25)));
+          withProp(g, room.x + 138, f, 8, () => drawArmchair(g, -1, mix(PAL.plum, PAL.paperDeep, 0.3)));
+          withProp(g, room.x + 168, f, 9, () => drawFloorLamp(g, 64));
           drawWindowFrame(g, room.x + 84, room.y + 30, 46, 32);
           drawWallArt(g, room.x + 40, room.y + 30, 28, 22, PAL.amber);
           // A side table between the chairs, with the tissues on it.
+          drawContactShadowAt(g, room.x + 104, f, 9, 2.4);
           g.roundRect(room.x + 96, f - 21, 16, 3.4, 1.6).fill(PAL.wood);
+          g.roundRect(room.x + 96, f - 21, 16, 1, 0.5).fill({ color: 0xffffff, alpha: 0.3 });
           g.rect(room.x + 102.6, f - 18, 2.8, 18).fill(PAL.woodDeep);
+          g.rect(room.x + 102.6, f - 18, 0.9, 18).fill({ color: PAL.wood, alpha: 0.5 });
           g.roundRect(room.x + 99, f - 26, 7, 5, 1.6).fill(PAL.paper);
           g.roundRect(room.x + 101, f - 28, 3, 3, 1).fill(PAL.paperDeep);
           break;
         }
         case 'break': {
           withOffset(g, room.x + 44, f, () => drawCoffeeMachine(g));
-          withOffset(g, room.x + 148, f, () => drawCouch(g, 84));
+          withProp(g, room.x + 148, f, 10, () => drawCouch(g, 84));
           drawWindowFrame(g, room.x + 130, room.y + 28, 44, 30);
-          withOffset(g, room.x + 100, f, () => {
+          withProp(g, room.x + 100, f, 11, () => {
+            drawContactShadow(g, 11, 2.6);
             g.roundRect(-12, -16, 24, 3, 1.4).fill(PAL.wood);
+            g.roundRect(-12, -16, 24, 1, 0.5).fill({ color: 0xffffff, alpha: 0.3 });
             g.rect(-1.4, -13, 2.8, 13).fill(PAL.woodDeep);
             g.roundRect(-5, -19, 5, 3, 1.2).fill(PAL.sage);
           });
@@ -852,10 +1047,10 @@ export class OfficeWorld {
           break;
         }
         case 'landing': {
-          withOffset(g, room.x + 68, f, () => drawBookshelf(g, 48, 78));
+          withProp(g, room.x + 68, f, 12, () => drawBookshelf(g, 48, 78));
           drawWindowFrame(g, room.x + 262, room.y + 30, 44, 30);
           drawWallArt(g, room.x + 156, room.y + 34, 40, 30, PAL.plum);
-          withOffset(g, room.x + 196, f, () => drawSideChair(g, -1));
+          withProp(g, room.x + 196, f, 13, () => drawSideChair(g, -1));
           break;
         }
         case 'hall': {
@@ -881,11 +1076,11 @@ export class OfficeWorld {
             });
           } else {
             if (room.w > 170) {
-              withOffset(g, room.x + room.w / 2, f, () =>
+              withProp(g, room.x + room.w / 2, f, 14, () =>
                 drawBookshelf(g, Math.min(120, room.w - 60), 84),
               );
             }
-            withOffset(g, room.x + 34, f, () => drawSideChair(g, 1));
+            withProp(g, room.x + 34, f, 15, () => drawSideChair(g, 1));
             drawWallArt(g, room.x + room.w - 54, room.y + 30, 32, 24, PAL.amber);
           }
           break;
@@ -959,33 +1154,146 @@ export class OfficeWorld {
 
   // ── Lamps ─────────────────────────────────────────────────────────────────
 
-  private buildLamps(): void {
-    for (const l of this.lamps) l.sprite.destroy();
+  /**
+   * Build every light in the building: the lamps themselves, the shafts of
+   * daylight coming through the windows, and the falloff overlays that make a
+   * room look lit by its lamp rather than washed with a flat tint.
+   *
+   * All of it is sprites whose alpha, tint and skew are animated per frame —
+   * no geometry is ever rebuilt after this, which is what keeps the scene at
+   * 60fps with nine therapists in it.
+   */
+  private buildLights(): void {
+    for (const l of this.lamps) {
+      l.halo.destroy();
+      l.core.destroy();
+      l.cone?.destroy();
+      l.pool?.destroy();
+    }
     this.lamps = [];
+    for (const b of this.beams) b.sprite.destroy();
+    this.beams = [];
+    for (const s of this.shades) {
+      s.vignette.destroy();
+      s.side.destroy();
+    }
+    this.shades = [];
     this.lightLayer.removeChildren();
+    this.shadeLayer.removeChildren();
 
-    const add = (x: number, y: number, size: number, base: number, color: number = PAL.amberGlow) => {
-      const s = makeGlow(color, size, 0);
-      s.position.set(x, y);
+    /**
+     * A lamp: a wide soft halo, a tight bright core inside it, and — when the
+     * lamp is a real object with a shade — a shaft under it and a pool on the
+     * floorboards below.
+     */
+    const add = (
+      x: number,
+      y: number,
+      size: number,
+      base: number,
+      color: number = PAL.amberGlow,
+      floorY?: number,
+    ) => {
+      const halo = makeGlow(color, size, 0);
+      halo.position.set(x, y);
+      const core = new Sprite(coreTexture());
+      core.anchor.set(0.5);
+      core.width = size * 0.3;
+      core.height = size * 0.3;
+      core.tint = lighten(color, 0.35);
+      core.alpha = 0;
+      core.blendMode = 'add';
+      core.position.set(x, y);
+      this.lightLayer.addChild(halo, core);
+
+      let cone: Sprite | null = null;
+      let pool: Sprite | null = null;
+      if (floorY !== undefined) {
+        const drop = Math.max(12, floorY - y);
+        cone = new Sprite(coneTexture());
+        cone.anchor.set(0.5, 0);
+        cone.width = size * 0.62;
+        cone.height = drop + BOARD * 0.6;
+        cone.tint = color;
+        cone.alpha = 0;
+        cone.blendMode = 'add';
+        cone.position.set(x, y);
+        pool = new Sprite(glowTexture());
+        pool.anchor.set(0.5);
+        pool.width = size * 0.7;
+        pool.height = BOARD * 2.4;
+        pool.tint = color;
+        pool.alpha = 0;
+        pool.blendMode = 'add';
+        pool.position.set(x, floorY + BOARD * 0.45);
+        this.lightLayer.addChild(cone, pool);
+      }
+      this.lamps.push({
+        halo,
+        core,
+        cone,
+        pool,
+        base,
+        poolW: size * 0.7,
+        seed: hash01(x, y, 77) * 100,
+      });
+    };
+
+    /** A shaft of daylight leaving a window and landing on the boards. */
+    const addBeam = (cx: number, sillY: number, w: number, floorY: number) => {
+      const s = new Sprite(beamTexture());
+      s.anchor.set(0.5, 0);
+      s.blendMode = 'add';
+      s.alpha = 0;
+      s.position.set(cx, sillY);
       this.lightLayer.addChild(s);
-      this.lamps.push({ sprite: s, base, seed: Math.random() * 100 });
+      this.beams.push({ sprite: s, w, drop: Math.max(20, floorY + BOARD * 0.6 - sillY) });
     };
 
     for (const room of this.rooms) {
       // A wide, faint ceiling wash so every room has a little warmth.
-      add(room.x + room.w / 2, room.y + room.h * 0.42, Math.max(room.w, 200) * 1.5, 0.16);
+      add(room.x + room.w / 2, room.y + room.h * 0.42, Math.max(room.w, 200) * 1.5, 0.14);
+      let lampX = room.x + room.w / 2;
       if (room.kind === 'therapy') {
-        add(room.x + 168, room.floorY + lampHeadY(64), 160, 0.62);
+        lampX = room.x + 168;
+        add(lampX, room.floorY + lampHeadY(64), 160, 0.62, PAL.amberGlow, room.floorY);
+        addBeam(room.x + 107, room.y + 66, 46, room.floorY);
       } else if (room.kind === 'waiting') {
-        add(room.x + 116, room.floorY - 44, 124, 0.44);
+        lampX = room.x + 116;
+        add(lampX, room.floorY - 44, 124, 0.44, PAL.amberGlow, room.floorY);
         add(room.x + 24, room.floorY - 56, 90, 0.2, PAL.amber);
+        addBeam(room.x + 24, room.floorY - 46, 22, room.floorY);
       } else if (room.kind === 'break') {
-        add(room.x + 44, room.floorY - 52, 120, 0.34);
+        lampX = room.x + 44;
+        add(lampX, room.floorY - 52, 120, 0.34, PAL.amberGlow, room.floorY);
+        addBeam(room.x + 152, room.y + 62, 44, room.floorY);
       } else if (room.kind === 'landing') {
-        add(room.x + 176, room.y + 44, 130, 0.3);
+        lampX = room.x + 176;
+        add(lampX, room.y + 44, 130, 0.3);
+        addBeam(room.x + 284, room.y + 64, 44, room.floorY);
       } else if (room.kind === 'hall') {
-        add(room.x + room.w / 2, room.y + 34, 100, 0.24);
+        add(lampX, room.y + 34, 100, 0.24);
+        if (room.floor === this.floorCount - 1) addBeam(lampX, room.y + 52, 32, room.floorY);
       }
+
+      // ── Falloff ────────────────────────────────────────────────────────────
+      const vignette = new Sprite(vignetteTexture());
+      vignette.position.set(room.x, room.y);
+      vignette.width = room.w;
+      vignette.height = room.h;
+      vignette.alpha = 0;
+      const side = new Sprite(sideShadeTexture());
+      side.anchor.set(0, 0);
+      side.height = room.h;
+      // Point the dark end away from the lamp: the far corner from the light
+      // is the one that should be losing its detail by six o'clock.
+      const lampOnLeft = lampX < room.x + room.w / 2;
+      side.width = room.w;
+      if (!lampOnLeft) side.scale.x = -side.scale.x;
+      side.position.set(lampOnLeft ? room.x : room.x + room.w, room.y);
+      side.alpha = 0;
+      this.shadeLayer.addChild(side, vignette);
+      this.shades.push({ vignette, side });
     }
 
     // Dust motes live in the same layer, above the tint.
@@ -1007,7 +1315,15 @@ export class OfficeWorld {
       holder.addChild(g);
       holder.position.set(slot.x, slot.y);
       this.plantLayer.addChild(holder);
-      this.plants.push({ holder, phase: Math.random() * Math.PI * 2 });
+      // A tall plant has a long lever and a slow return; a desk succulent
+      // barely moves. Same wind, different plant.
+      const k = clamp01((slot.size - 18) / 22);
+      this.plants.push({
+        holder,
+        phase: hash01(slot.x, slot.y, 41) * Math.PI * 2,
+        amp: 0.012 + k * 0.03,
+        rate: 0.72 - k * 0.26,
+      });
     }
   }
 
@@ -1052,9 +1368,109 @@ export class OfficeWorld {
     if (reduced) return;
     for (let i = 0; i < this.plants.length; i++) {
       const p = this.plants[i];
-      p.phase += dt * 0.55;
-      p.holder.rotation = Math.sin(p.phase + i) * 0.028;
+      p.phase += dt * p.rate;
+      // Two frequencies so the sway never settles into an obvious loop.
+      p.holder.rotation = (Math.sin(p.phase) + Math.sin(p.phase * 0.43) * 0.4) * p.amp;
     }
+  }
+
+  // ── The cat ───────────────────────────────────────────────────────────────
+
+  /**
+   * She lives in the waiting room, walks its length now and then, and spends
+   * most of the day asleep on a chair. She has no effect on anything, which is
+   * the correct amount of effect for a cat to have.
+   */
+  private buildCat(): void {
+    const room = this.waitingRoom;
+    if (!room) {
+      this.cat = null;
+      return;
+    }
+    const rig = this.cat?.rig ?? createCat();
+    if (!this.cat) this.charLayer.addChild(rig.view);
+    rig.view.zIndex = 5;
+    const x = clamp(this.cat?.x ?? room.x + 70, room.x + 30, room.x + room.w - 30);
+    this.cat = {
+      rig,
+      x,
+      y: room.floorY,
+      dir: 1,
+      pose: 'sit',
+      hold: 4,
+      targetX: x,
+    };
+    rig.view.position.set(x, room.floorY);
+    setCatPose(rig, 'sit');
+  }
+
+  private updateCat(dt: number, calm: boolean, reduced: boolean): void {
+    const c = this.cat;
+    const room = this.waitingRoom;
+    if (!c || !room) return;
+    // She is decoration, and calm mode is a promise about decoration.
+    c.rig.view.visible = !calm;
+    if (calm) return;
+
+    if (reduced) {
+      // Still a cat, just a very restful one.
+      if (c.pose !== 'curl') {
+        c.pose = 'curl';
+        setCatPose(c.rig, 'curl');
+        const seat = room.seats.find((s) => s.role === 'wait');
+        c.x = seat ? seat.x : c.x;
+        c.rig.view.position.set(c.x, room.floorY - SEAT_HEIGHT + 1);
+      }
+      return;
+    }
+
+    c.hold -= dt;
+    if (c.pose === 'walk') {
+      const dx = c.targetX - c.x;
+      if (Math.abs(dx) < 2 || c.hold <= 0) {
+        // Two thirds of the time she settles where she stopped; otherwise she
+        // finds a chair, which is always the better chair.
+        const chair = hash01(c.x, this.time, 61) < 0.34;
+        const seat = chair ? this.catChair(room) : null;
+        if (seat) {
+          c.x = seat.x;
+          c.pose = 'curl';
+          c.hold = 20 + hash01(c.x, this.time, 62) * 30;
+        } else {
+          c.pose = 'sit';
+          c.hold = 6 + hash01(c.x, this.time, 63) * 10;
+        }
+        setCatPose(c.rig, c.pose);
+      } else {
+        const dir: 1 | -1 = dx > 0 ? 1 : -1;
+        c.dir = dir;
+        c.x += dir * 26 * dt;
+      }
+    } else if (c.hold <= 0) {
+      c.pose = 'walk';
+      c.hold = 14;
+      c.targetX = room.x + 40 + hash01(c.x, this.time, 64) * (room.w - 80);
+      setCatPose(c.rig, 'walk');
+    }
+
+    c.rig.view.scale.x = c.dir;
+    const onChair = c.pose === 'curl';
+    c.rig.view.position.set(c.x, room.floorY - (onChair ? SEAT_HEIGHT - 1 : 0));
+    c.rig.phase += dt * (c.pose === 'walk' ? 5.5 : 1.1);
+    // The tail keeps moving even when nothing else does.
+    c.rig.tail.rotation = Math.sin(c.rig.phase) * (c.pose === 'walk' ? 0.16 : 0.3);
+    c.rig.body.y = c.pose === 'walk' ? -Math.abs(Math.sin(c.rig.phase)) * 0.7 : 0;
+    c.rig.view.zIndex = c.x;
+  }
+
+  /** A free waiting-room chair, if there is one she can commandeer. */
+  private catChair(room: Room): Seat | null {
+    for (const s of room.seats) {
+      if (s.role !== 'wait') continue;
+      if (this.occupied.has(s.id)) continue;
+      return s;
+    }
+    return null;
   }
 
   // ───────────────────────────────────────────────────────────────────────────
@@ -1093,13 +1509,55 @@ export class OfficeWorld {
     const night = clamp01((t - 0.72) / 0.28) * 0.9 + this.dusk * 0.5;
     this.stars.alpha = clamp01(night);
 
-    // Lamps warm up through the day and hold at full through the evening.
+    // ── Lamps ───────────────────────────────────────────────────────────────
+    // They warm up through the day and hold at full through the evening. The
+    // pools on the floor stretch as the light gets lower and longer.
     this.lampLevel = clamp01(0.28 + t * t * 0.85 + this.dusk * 0.4);
+    const evening = clamp01(this.ambient * 0.75 + this.dusk * 0.4);
     const flickerOn = !calm;
+    const poolStretch = 1 + evening * 0.75;
     for (let i = 0; i < this.lamps.length; i++) {
       const l = this.lamps[i];
       const flicker = flickerOn ? 0.965 + Math.sin(this.time * (2.1 + (i % 5) * 0.37) + l.seed) * 0.035 : 1;
-      l.sprite.alpha = l.base * this.lampLevel * flicker;
+      const lit = l.base * this.lampLevel * flicker;
+      l.halo.alpha = lit;
+      // The core barely shows in daylight and burns through by evening — that
+      // difference is most of what "a lamp came on" looks like.
+      l.core.alpha = lit * (0.35 + evening * 0.85);
+      if (l.cone) l.cone.alpha = lit * 0.5 * (0.2 + evening * 1.1);
+      if (l.pool) {
+        l.pool.alpha = lit * 0.62 * (0.22 + evening * 1.05);
+        l.pool.width = l.poolW * poolStretch;
+      }
+    }
+
+    // ── Daylight ────────────────────────────────────────────────────────────
+    // The other half of the trade: as the lamps come up, the sun crosses the
+    // floor, warms, lengthens, and goes cold.
+    const beamColor = rampColor(DAY_COLOR, t);
+    const beamAlpha = rampValue(DAY_ALPHA, t) * (1 - this.dusk * 0.92);
+    const beamSkew = rampValue(DAY_SKEW, t);
+    const beamSpread = rampValue(DAY_SPREAD, t);
+    // Skewing shortens a sprite's vertical reach by cos(skew); undo that so the
+    // shaft always lands ON the floorboards however far over the sun has moved.
+    const beamStretch = 1 / Math.max(0.55, Math.cos(beamSkew));
+    for (const b of this.beams) {
+      b.sprite.tint = beamColor;
+      b.sprite.alpha = beamAlpha;
+      b.sprite.width = b.w * beamSpread;
+      b.sprite.height = b.drop * beamStretch;
+      b.sprite.skew.x = beamSkew;
+    }
+
+    // ── Falloff ─────────────────────────────────────────────────────────────
+    // Corners lose their detail as the day closes in; the half of the room the
+    // lamp isn't on goes cool rather than merely dark.
+    const shadeTone = mix(PAL.night, PAL.plumDeep, 0.3 + evening * 0.25);
+    for (const s of this.shades) {
+      s.vignette.tint = shadeTone;
+      s.vignette.alpha = 0.1 + evening * 0.34;
+      s.side.tint = mix(shadeTone, PAL.ink, 0.3);
+      s.side.alpha = 0.05 + evening * 0.2;
     }
   }
 
@@ -1228,6 +1686,7 @@ export class OfficeWorld {
       wantSeat: null,
       facing: 1,
       sleepy: false,
+      lean: 0,
       wanderAt: 0,
       waveT: 0,
       leaving: false,
@@ -1365,8 +1824,11 @@ export class OfficeWorld {
       if (sess && room) {
         const seat = room.seats.find((s) => s.role === 'therapist');
         if (seat) this.sendTo(a, seat);
+        // The listening tilt: forward, and a good deal less than the client's.
+        a.lean = 0.042;
         continue;
       }
+      a.lean = 0;
       if (!running) continue;
       if (now < a.wanderAt) continue;
       a.wanderAt = now + 8 + Math.random() * 13;
@@ -1395,12 +1857,15 @@ export class OfficeWorld {
         a.alphaTarget = 1;
         const seat = room?.seats.find((s) => s.role === 'client');
         if (seat) this.sendTo(a, seat);
+        // Leaning in, a little more than the therapist does.
+        a.lean = 0.058;
       } else if (running && state.minute >= startMin - ARRIVE_LEAD) {
         seen.add(key);
         const a = this.ensureActor(key, 'client', c.id, c.portrait, this.doorPoint());
         if (a.leaving) continue;
         a.ttl = -1;
         a.alphaTarget = 1;
+        a.lean = 0;
         if (!a.wantSeat) {
           const seat = this.freeSeat(['wait', 'stand'], this.waitingRoom);
           if (seat) this.sendTo(a, seat);
@@ -1498,10 +1963,34 @@ export class OfficeWorld {
       a.rig.view.position.set(a.x, a.y);
       setPersonPose(a.rig, mode === 'sit' ? 'sit' : 'stand', a.sleepy && mode !== 'walk');
       setPersonFacing(a.rig, a.facing);
+      // A lean only reads when someone is settled; walking with one looks drunk.
+      a.rig.lean = mode === 'sit' ? a.lean : 0;
+      setPersonProp(a.rig, this.propFor(a, mode));
       animatePerson(a.rig, dt, mode, reduced);
       // Upper floors draw over lower ones; within a floor, right over left.
       a.rig.view.zIndex = a.floor * 10000 + a.x;
     }
+  }
+
+  /**
+   * What someone is doing with their hands. Waiting rooms are full of people
+   * killing eleven minutes, and "sat perfectly still facing forward" is the one
+   * thing nobody in a waiting room is actually doing.
+   *
+   * Bucketed on a slow clock so a person keeps the same magazine for a while
+   * rather than flickering between activities every frame.
+   */
+  private propFor(a: Actor, mode: PersonMode): PersonProp {
+    if (mode !== 'sit' || !a.seat) return 'none';
+    if (a.leaving) return 'none';
+    const bucket = Math.floor(this.time / 24);
+    if (a.seat.role === 'wait') {
+      const h = hash01(a.seat.x, bucket, 71);
+      return h < 0.38 ? 'phone' : h < 0.68 ? 'magazine' : 'none';
+    }
+    // Whoever made it to the break room has earned the mug.
+    if (a.seat.role === 'couch' || a.seat.role === 'coffee') return 'mug';
+    return 'none';
   }
 
   // ───────────────────────────────────────────────────────────────────────────
@@ -1626,14 +2115,20 @@ export class OfficeWorld {
         w.sprite.visible = false;
         continue;
       }
-      w.sprite.x += w.vx * dt;
+      const age = w.max - w.life;
+      w.phase += dt * w.curl;
+      // Steam does not go up in a line. It wanders sideways, loses its heat,
+      // slows, and spreads out into nothing.
+      const drift = Math.sin(w.phase) + Math.sin(w.phase * 0.61 + 1.3) * 0.5;
+      w.sprite.x += (w.vx + drift * (5 + age * 9)) * dt;
       w.sprite.y += w.vy * dt;
-      w.vx += Math.sin(w.life * 5) * 4 * dt;
+      // Rising air cools and slows as it climbs.
+      w.vy += 9 * dt;
       const k = w.life / w.max;
-      w.sprite.alpha = k * 0.35;
-      const size = 10 + (1 - k) * 26;
+      w.sprite.alpha = k * k * 0.42;
+      const size = 8 + (1 - k) * 30;
       w.sprite.width = size;
-      w.sprite.height = size;
+      w.sprite.height = size * (1 - (1 - k) * 0.25);
     }
 
     // ── Goodbye petals ────────────────────────────────────────────────────
@@ -1661,14 +2156,16 @@ export class OfficeWorld {
       s.tint = PAL.paper;
       s.blendMode = 'add';
       this.fxLayer.addChild(s);
-      w = { sprite: s, vx: 0, vy: 0, life: 0, max: 1 };
+      w = { sprite: s, vx: 0, vy: 0, life: 0, max: 1, phase: 0, curl: 1 };
       this.wisps.push(w);
     }
     w.sprite.position.set(x, y);
     w.sprite.visible = true;
     w.vx = (Math.random() - 0.5) * 8;
-    w.vy = -16 - Math.random() * 10;
-    w.max = 1.6 + Math.random() * 0.8;
+    w.vy = -20 - Math.random() * 12;
+    w.phase = Math.random() * Math.PI * 2;
+    w.curl = 1.6 + Math.random() * 1.6;
+    w.max = 1.8 + Math.random() * 0.9;
     w.life = w.max;
   }
 }
@@ -1690,6 +2187,36 @@ function withOffset(g: Graphics, x: number, y: number, draw: () => void): void {
   g.translateTransform(x, y);
   draw();
   g.translateTransform(-x, -y);
+}
+
+/**
+ * The same, but with a deterministic tilt of up to a degree, hashed off where
+ * the prop stands. Real furniture is never square to the room, and that tiny
+ * wrongness is most of the difference between "illustrated" and "generated".
+ *
+ * Pixi's transform ops pre-multiply, so `rotate` then `translate` composes to
+ * "rotate the prop about its own feet, then stand it at (x, y)" — and undoing
+ * them in reverse leaves the shared context exactly as we found it.
+ */
+function withProp(g: Graphics, x: number, y: number, salt: number, draw: () => void): void {
+  const r = wobble(x, y, salt, 1 * DEG);
+  g.rotateTransform(r);
+  g.translateTransform(x, y);
+  draw();
+  g.translateTransform(-x, -y);
+  g.rotateTransform(-r);
+}
+
+/** A contact shadow for furniture drawn inline rather than through a helper. */
+function drawContactShadowAt(g: Graphics, x: number, y: number, w: number, h: number): void {
+  withOffset(g, x, y, () => drawContactShadow(g, w, h));
+}
+
+/** `#RRGGBB` from the content pack → a packed Pixi colour. */
+function hexToInt(hex: string | undefined): number | null {
+  if (!hex) return null;
+  const n = Number.parseInt(hex.replace('#', ''), 16);
+  return Number.isFinite(n) ? n : null;
 }
 
 /** Re-exported so room maths and chair geometry stay in sync. */

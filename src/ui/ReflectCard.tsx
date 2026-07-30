@@ -19,13 +19,23 @@ import { Plant, Portrait } from './Portrait';
 const DURATION_MS = 6000;
 const MAX_QUEUE = 8;
 
-const GRADE_STYLE: Record<OutcomeGrade, { label: string; color: string; glow: boolean }> = {
-  breakthrough: { label: 'Breakthrough', color: 'var(--color-amber-deep)', glow: true },
-  excellent: { label: 'Excellent hour', color: 'var(--color-sage-deep)', glow: false },
-  good: { label: 'Good hour', color: 'var(--color-ink)', glow: false },
-  mixed: { label: 'Mixed hour', color: 'var(--color-plum-deep)', glow: false },
-  poor: { label: 'Hard hour', color: 'var(--color-brick)', glow: false },
+/**
+ * `tint`/`edge` are how loudly the pill speaks. A breakthrough genuinely glows;
+ * a hard hour is quiet brick — it is information, not an alarm.
+ */
+const GRADE_STYLE: Record<
+  OutcomeGrade,
+  { label: string; color: string; glow: boolean; tint: number; edge: number }
+> = {
+  breakthrough: { label: 'Breakthrough', color: 'var(--color-amber-deep)', glow: true, tint: 22, edge: 52 },
+  excellent: { label: 'Excellent hour', color: 'var(--color-sage-deep)', glow: false, tint: 15, edge: 38 },
+  good: { label: 'Good hour', color: 'var(--color-ink)', glow: false, tint: 9, edge: 24 },
+  mixed: { label: 'Mixed hour', color: 'var(--color-plum-deep)', glow: false, tint: 11, edge: 28 },
+  poor: { label: 'Hard hour', color: 'var(--color-brick)', glow: false, tint: 8, edge: 22 },
 };
+
+/** Half-width of the diverging reason bars, in px. */
+const HALF = 30;
 
 const REASON_COLOR: Record<'good' | 'bad' | 'neutral', string> = {
   good: 'var(--color-sage-deep)',
@@ -124,8 +134,8 @@ export function ReflectCard() {
 
   return (
     <div
-      className={`fixed bottom-5 left-1/2 -translate-x-1/2 z-40 w-[min(456px,calc(100vw-1.75rem))] ${
-        calm ? '' : 'rise-in'
+      className={`fixed bottom-5 left-1/2 -translate-x-1/2 z-40 w-[min(464px,calc(100vw-1.75rem))] ${
+        calm ? '' : 'tt-rise-settle'
       }`}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
@@ -139,14 +149,26 @@ export function ReflectCard() {
         <div
           className="absolute inset-y-0 left-0 w-[4px]"
           style={{
-            background: grade.color,
-            boxShadow: grade.glow ? `0 0 14px 1px color-mix(in oklab, ${grade.color} 70%, transparent)` : undefined,
+            background: `linear-gradient(180deg, color-mix(in oklab, ${grade.color} 55%, white) 0%, ${grade.color} 40%, color-mix(in oklab, ${grade.color} 82%, black) 100%)`,
+            boxShadow: grade.glow
+              ? `1px 0 0 color-mix(in oklab, ${grade.color} 40%, transparent), 0 0 18px 1px color-mix(in oklab, ${grade.color} 62%, transparent)`
+              : `1px 0 0 color-mix(in oklab, ${grade.color} 28%, transparent)`,
+          }}
+          aria-hidden
+        />
+
+        {/* the lamp, above and to the left */}
+        <div
+          className="absolute inset-x-0 top-0 h-20 pointer-events-none"
+          style={{
+            background:
+              'radial-gradient(70% 150% at 18% -30%, color-mix(in oklab, var(--color-amber-glow) 34%, transparent) 0%, transparent 70%)',
           }}
           aria-hidden
         />
 
         {/* ── Who, and how it went ───────────────────────────────────────── */}
-        <div className="pl-4 pr-2.5 pt-3 pb-2 flex items-start gap-2.5">
+        <div className="relative pl-4 pr-2.5 pt-3 pb-2 flex items-start gap-2.5">
           <Portrait
             seed={client.portrait}
             size={40}
@@ -158,14 +180,16 @@ export function ReflectCard() {
             <div className="flex items-center gap-1.5 flex-wrap">
               <span className="display text-[0.98rem] leading-tight text-ink">{client.handle}</span>
               <span
-                className="text-[0.64rem] font-extrabold uppercase tracking-[0.08em] px-2 py-[2px] rounded-full"
+                className={`text-[0.64rem] font-extrabold uppercase tracking-[0.08em] px-2 py-[2px] rounded-full ${
+                  grade.glow && !calm ? 'tt-pill-glow' : ''
+                }`}
                 style={{
-                  color: `color-mix(in oklab, ${grade.color} 82%, var(--color-ink))`,
-                  background: `color-mix(in oklab, ${grade.color} 16%, transparent)`,
-                  border: `1px solid color-mix(in oklab, ${grade.color} 38%, transparent)`,
+                  color: `color-mix(in oklab, ${grade.color} 84%, var(--color-ink))`,
+                  background: `linear-gradient(180deg, color-mix(in oklab, ${grade.color} ${grade.tint * 0.7}%, transparent) 0%, color-mix(in oklab, ${grade.color} ${grade.tint}%, transparent) 100%)`,
                   boxShadow: grade.glow
-                    ? `0 0 12px -2px color-mix(in oklab, ${grade.color} 80%, transparent)`
-                    : undefined,
+                    ? `inset 0 0 0 1px color-mix(in oklab, ${grade.color} ${grade.edge}%, transparent), inset 0 1px 0 rgba(255,253,246,0.6), 0 0 16px -3px color-mix(in oklab, ${grade.color} 78%, transparent)`
+                    : `inset 0 0 0 1px color-mix(in oklab, ${grade.color} ${grade.edge}%, transparent), inset 0 1px 0 rgba(255,253,246,0.55)`,
+                  textShadow: '0 1px 0 rgba(255,253,246,0.6)',
                 }}
               >
                 {grade.label}
@@ -214,8 +238,12 @@ export function ReflectCard() {
 
         {current.beat && (
           <p
-            className="mx-4 mb-2.5 pl-2.5 py-1 text-[0.8rem] italic leading-relaxed text-ink-soft"
-            style={{ borderLeft: '2px solid color-mix(in oklab, var(--color-amber) 55%, transparent)' }}
+            className="mx-4 mb-2.5 pl-3 pr-2 py-1.5 text-[0.8rem] italic leading-relaxed text-ink-soft rounded-r-[8px]"
+            style={{
+              borderLeft: '2px solid color-mix(in oklab, var(--color-amber) 60%, transparent)',
+              background:
+                'linear-gradient(90deg, color-mix(in oklab, var(--color-amber-glow) 22%, transparent) 0%, transparent 78%)',
+            }}
           >
             {current.beat.text}
           </p>
@@ -223,14 +251,25 @@ export function ReflectCard() {
 
         {/* ── Why ────────────────────────────────────────────────────────── */}
         {current.reasons.length > 0 && (
-          <div className="mx-4 mb-2.5 pt-2 border-t hairline">
+          <div className="mx-4 mb-2.5 pt-2 relative">
+            <span
+              aria-hidden
+              className="absolute inset-x-0 top-0 h-px"
+              style={{
+                background:
+                  'linear-gradient(90deg, color-mix(in oklab, var(--color-ink) 15%, transparent) 0%, color-mix(in oklab, var(--color-ink) 15%, transparent) 72%, transparent 100%)',
+              }}
+            />
             <div className="text-[0.55rem] font-extrabold uppercase tracking-[0.13em] text-ink-faint mb-1">
               Why the hour went this way
             </div>
             <ul className="space-y-[3px]">
               {current.reasons.map((r, i) => {
                 const color = REASON_COLOR[r.kind];
-                const width = Math.max(3, Math.min(1, Math.abs(r.delta) / 0.22) * 52);
+                // A diverging bar off a centre line: helped to the right, cost
+                // to the left. Same scale for every row, so lengths compare.
+                const mag = Math.max(2, Math.min(1, Math.abs(r.delta) / 0.22) * (HALF - 2));
+                const positive = r.delta >= 0;
                 return (
                   <li key={`${r.label}-${i}`} className="flex items-center gap-2 text-[0.7rem] leading-tight">
                     <span
@@ -246,10 +285,35 @@ export function ReflectCard() {
                         {Math.abs(r.delta).toFixed(3)}
                       </span>
                     )}
-                    <span className="shrink-0 w-[54px] flex justify-start" aria-hidden>
+                    <span
+                      className="shrink-0 relative rounded-full"
+                      style={{
+                        width: HALF * 2,
+                        height: 7,
+                        background: 'color-mix(in oklab, var(--color-ink) 7%, transparent)',
+                        boxShadow: 'inset 0 1px 1px color-mix(in oklab, var(--color-ink) 13%, transparent)',
+                      }}
+                      aria-hidden
+                    >
+                      {/* the centre line the bars grow from */}
                       <span
-                        className="h-[5px] rounded-full"
-                        style={{ width, background: color, opacity: r.kind === 'neutral' ? 0.5 : 0.9 }}
+                        className="absolute inset-y-[1px] w-px"
+                        style={{
+                          left: HALF,
+                          background: 'color-mix(in oklab, var(--color-ink) 26%, transparent)',
+                        }}
+                      />
+                      <span
+                        className="absolute top-[1px] bottom-[1px] rounded-full"
+                        style={{
+                          width: mag,
+                          left: positive ? HALF : HALF - mag,
+                          background:
+                            r.kind === 'neutral'
+                              ? `color-mix(in oklab, ${color} 55%, transparent)`
+                              : `linear-gradient(180deg, color-mix(in oklab, ${color} 62%, white) 0%, ${color} 100%)`,
+                          boxShadow: r.kind === 'neutral' ? undefined : `0 1px 1px -1px ${color}`,
+                        }}
                       />
                     </span>
                   </li>
@@ -303,8 +367,8 @@ function Callout({ icon, color, children }: { icon: string; color: string; child
       className="inline-flex items-center gap-1 text-[0.68rem] font-bold px-2 py-[3px] rounded-full"
       style={{
         color: `color-mix(in oklab, ${color} 84%, var(--color-ink))`,
-        background: `color-mix(in oklab, ${color} 13%, transparent)`,
-        border: `1px solid color-mix(in oklab, ${color} 32%, transparent)`,
+        background: `linear-gradient(180deg, color-mix(in oklab, ${color} 9%, transparent) 0%, color-mix(in oklab, ${color} 15%, transparent) 100%)`,
+        boxShadow: `inset 0 0 0 1px color-mix(in oklab, ${color} 30%, transparent), inset 0 1px 0 rgba(255,253,246,0.55)`,
       }}
     >
       <span aria-hidden>{icon}</span>

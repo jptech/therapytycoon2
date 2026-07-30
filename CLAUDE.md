@@ -6,11 +6,14 @@ PixiJS v8 · Zustand · Tailwind v4. **Package manager and runtime is `bun`, not
 ```bash
 bun run dev          # dev server (port 5199 via .claude/launch.json)
 bun run typecheck    # tsc --noEmit — must be 0 before you claim done
-bun run test         # vitest, 182 tests, ~0.6s
+bun run test         # vitest — sim formulas, liveness, saves, content integrity
 bun run balance      # headless balance harness — READ docs/BALANCE.md FIRST
 bun run playtest     # narrated single run — the fastest way to see a change
 bun run build
 ```
+
+In dev, `window.__tt` exposes `{state, ui, dispatch, store}` — the whole simulation is one
+object, so reading it from the console beats adding logging.
 
 ---
 
@@ -80,9 +83,24 @@ carries the full explanation of every session, and `progressDelta` is the *total
 including arc beats. This is structural, not a UI convention: it is the no-hidden-punishments
 design commitment in code. Never report a partial figure.
 
+**A pending event nobody renders freezes the game.** `tick()` refuses to advance time while any
+event is pending — deliberately, so a decision can never be skipped. That makes it a *liveness
+contract* that something is always on screen to resolve it, and the freeze is silent: pause/play
+has no effect, because pause is not what is blocking. `src/sim/pending.ts` is the single source of
+truth — `App.tsx` decides what to mount with exactly the predicates the modals use to pick their
+subject. **If you add a blocking modal, add its predicate there and extend
+`src/sim/stall.test.ts`.** Never inline the check in a component. A watchdog in `App.tsx` and the
+error boundary in `main.tsx` are backstops, not permission to be careless.
+
+**Floating UI must portal to `document.body`.** The HUD strip clips its overflow *and* creates a
+stacking context via `backdrop-filter`, so anything positioned inside it is both cut off and
+trapped below the scene. Use `placeAnchored()` from `src/ui/anchor.ts` for positioning — it flips
+and clamps to the viewport, and it is unit tested without a DOM.
+
 **Three UI surfaces write `state.flags` directly** and dispatch a no-op to force a publish,
 because those transient flags have no dedicated action. Every site is commented. If you need a
-fourth, add a real action instead.
+fourth, add a real action instead. (The watchdog's emergency `pendingEvents = []` is a fourth
+direct write, justified because it is recovering from an otherwise unrecoverable state.)
 
 ## Before you say a change is done
 

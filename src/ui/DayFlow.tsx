@@ -5,7 +5,7 @@ import { computeExceptions, dailyRevenueForecast, type Exception } from '../sim/
 import { formatDay, formatMoney } from '../sim/util';
 import { useDispatch, useSim, useSimShallow, useStore } from '../store';
 import type { GameState, OutcomeGrade, SessionResult } from '../sim/types';
-import { Button, Chip, Divider, EmptyState, Meter, SectionHeading, Tooltip } from './primitives';
+import { Button, Chip, Divider, EdgeRule, EmptyState, Meter, SectionHeading, Tooltip } from './primitives';
 import { Plant, Portrait } from './Portrait';
 
 /**
@@ -60,22 +60,53 @@ function NotebookPage({
       }}
     >
       <div
-        className={`paper relative w-full max-h-full flex flex-col overflow-hidden ${calm ? '' : 'rise-in'}`}
+        className={`paper relative w-full max-h-full flex flex-col overflow-hidden ${calm ? '' : 'tt-rise-settle'}`}
         style={{ maxWidth }}
       >
-        {/* The margin rule of a well-used notebook. */}
+        {/* The lamp, hanging over the top-left of the page. */}
+        <div
+          aria-hidden
+          className="absolute inset-x-0 top-0 h-32 pointer-events-none"
+          style={{
+            background:
+              'radial-gradient(58% 130% at 24% -34%, color-mix(in oklab, var(--color-amber-glow) 40%, transparent) 0%, transparent 72%)',
+          }}
+        />
+        {/* The margin rule of a well-used notebook, and its punch marks. */}
         <div
           aria-hidden
           className="absolute inset-y-0 left-10 w-px pointer-events-none"
-          style={{ background: 'color-mix(in oklab, var(--color-brick) 32%, transparent)' }}
+          style={{
+            background:
+              'linear-gradient(180deg, transparent 0%, color-mix(in oklab, var(--color-brick) 34%, transparent) 5%, color-mix(in oklab, var(--color-brick) 34%, transparent) 95%, transparent 100%)',
+          }}
         />
-        <header className="shrink-0 pl-[3.6rem] pr-5 pt-4 pb-3">
-          <div className="text-[0.6rem] font-extrabold uppercase tracking-[0.14em] text-ink-faint">{eyebrow}</div>
-          <h2 className="display text-[1.5rem] leading-tight text-ink mt-0.5">{title}</h2>
-          {sub ? <p className="text-[0.8rem] text-ink-soft leading-relaxed mt-1 max-w-[58ch]">{sub}</p> : null}
+        <div aria-hidden className="absolute left-[1.05rem] inset-y-0 pointer-events-none flex flex-col justify-evenly">
+          {[0, 1, 2].map((i) => (
+            <span
+              key={i}
+              className="block w-[9px] h-[9px] rounded-full"
+              style={{
+                background: 'color-mix(in oklab, var(--color-ink) 8%, transparent)',
+                boxShadow:
+                  'inset 0 1px 2px color-mix(in oklab, var(--color-ink) 26%, transparent), 0 1px 0 rgba(255,253,246,0.8)',
+              }}
+            />
+          ))}
+        </div>
+
+        <header className="relative shrink-0 pl-[3.6rem] pr-5 pt-4 pb-3">
+          <div className="text-[0.6rem] font-extrabold uppercase tracking-[0.16em] text-ink-faint">{eyebrow}</div>
+          <h2 className="display text-[1.62rem] leading-[1.1] text-ink mt-0.5 tracking-[-0.02em]">{title}</h2>
+          {sub ? (
+            <p className="text-[0.815rem] text-ink-soft leading-[1.6] mt-1.5 max-w-[58ch] [text-wrap:pretty]">{sub}</p>
+          ) : null}
         </header>
-        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain pl-[3.6rem] pr-5 pb-4">{children}</div>
-        <footer className="shrink-0 border-t hairline pl-[3.6rem] pr-5 py-3 flex items-center gap-2 flex-wrap">
+        <div className="relative flex-1 min-h-0 overflow-y-auto overscroll-contain pl-[3.6rem] pr-5 pb-4">
+          {children}
+        </div>
+        <footer className="relative shrink-0 pl-[3.6rem] pr-5 py-3 flex items-center gap-2.5 flex-wrap">
+          <EdgeRule top />
           {footer}
         </footer>
       </div>
@@ -96,9 +127,14 @@ function Figure({
   hint?: ReactNode;
 }) {
   const body = (
-    <div className="card-warm px-3 py-2 min-w-[104px]">
-      <div className="text-[0.58rem] font-extrabold uppercase tracking-[0.11em] text-ink-faint">{label}</div>
-      <div className="display tabular text-[1.15rem] leading-tight" style={{ color: color ?? 'var(--color-ink)' }}>
+    <div className="card-warm px-3 py-2 min-w-[118px]">
+      <div className="text-[0.58rem] font-extrabold uppercase tracking-[0.12em] text-ink-faint whitespace-nowrap">
+        {label}
+      </div>
+      <div
+        className="tabular text-[1.18rem] font-bold leading-tight mt-0.5 tracking-[-0.03em]"
+        style={{ color: color ?? 'var(--color-ink)', textShadow: '0 1px 0 rgba(255,253,246,0.85)' }}
+      >
         {value}
       </div>
     </div>
@@ -198,10 +234,12 @@ export function MorningBrief() {
     >
       {autoScheduler ? (
         <div
-          className="rounded-[var(--radius-card)] px-3 py-2 mb-3 text-[0.78rem] leading-snug text-ink"
+          className="tt-hand px-3 py-2 mb-3 text-[0.79rem] leading-[1.5] text-ink"
           style={{
-            background: 'color-mix(in oklab, var(--color-sage) 13%, transparent)',
-            border: '1px solid color-mix(in oklab, var(--color-sage) 32%, transparent)',
+            background:
+              'linear-gradient(180deg, color-mix(in oklab, var(--color-sage) 9%, transparent) 0%, color-mix(in oklab, var(--color-sage) 17%, transparent) 100%)',
+            boxShadow:
+              'inset 0 0 0 1px color-mix(in oklab, var(--color-sage) 30%, transparent), inset 0 1px 0 rgba(255,253,246,0.6)',
           }}
         >
           <span aria-hidden className="mr-1.5">
@@ -283,8 +321,8 @@ export function MorningBrief() {
                 <Portrait seed={c.portrait} size={34} />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-baseline gap-1.5 flex-wrap">
-                    <span className="tabular text-[0.82rem] font-bold text-ink">{c.handle}</span>
-                    <span className="text-[0.7rem] text-ink-faint">{c.age}</span>
+                    <span className="text-[0.84rem] font-bold text-ink">{c.handle}</span>
+                    <span className="tabular text-[0.7rem] text-ink-faint">{c.age}</span>
                     {c.complex ? <Chip color="var(--color-plum)">Complex</Chip> : null}
                     {c.payment === 'sliding_scale' ? <Chip color="var(--color-sage)">Sliding scale</Chip> : null}
                   </div>
@@ -357,14 +395,37 @@ function GradePill({ result }: { result: SessionResult }) {
       <span
         className="chip shrink-0"
         style={{
-          background: `color-mix(in oklab, ${g.color} 16%, transparent)`,
-          borderColor: `color-mix(in oklab, ${g.color} 40%, transparent)`,
+          background: `linear-gradient(180deg, color-mix(in oklab, ${g.color} 11%, transparent) 0%, color-mix(in oklab, ${g.color} 18%, transparent) 100%)`,
+          borderColor: `color-mix(in oklab, ${g.color} 38%, transparent)`,
           color: g.color,
         }}
       >
         {g.label}
       </span>
     </Tooltip>
+  );
+}
+
+/** The ledger columns, declared once so the header and the rows agree. */
+const COL_GRADE = 106;
+const COL_DELTA = 54;
+const COL_FEES = 66;
+
+function ResultHeader() {
+  return (
+    <div className="flex items-center gap-2.5 pb-1 text-[0.55rem] font-extrabold uppercase tracking-[0.12em] text-ink-faint">
+      <span className="w-[28px] shrink-0" aria-hidden />
+      <span className="flex-1 min-w-0">Who, and with whom</span>
+      <span className="shrink-0 text-right" style={{ width: COL_GRADE }}>
+        How it went
+      </span>
+      <span className="shrink-0 text-right" style={{ width: COL_DELTA }}>
+        Progress
+      </span>
+      <span className="shrink-0 text-right" style={{ width: COL_FEES }}>
+        Fees
+      </span>
+    </div>
   );
 }
 
@@ -377,11 +438,11 @@ function ResultRow({ result }: { result: SessionResult }) {
 
   return (
     <div className="flex items-center gap-2.5 py-1.5 border-b hairline last:border-b-0">
-      {seed ? <Portrait seed={seed} size={28} /> : null}
+      <span className="w-[28px] shrink-0">{seed ? <Portrait seed={seed} size={28} /> : null}</span>
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline gap-1.5">
-          <span className="tabular text-[0.8rem] font-bold text-ink">{handle}</span>
-          <span className="text-[0.68rem] text-ink-faint">{age}</span>
+          <span className="text-[0.82rem] font-bold text-ink truncate">{handle}</span>
+          <span className="tabular text-[0.68rem] text-ink-faint">{age}</span>
           <span title={`${focus.name} — ${focus.blurb}`} aria-label={focus.name}>
             {focus.icon}
           </span>
@@ -390,16 +451,24 @@ function ResultRow({ result }: { result: SessionResult }) {
         </div>
         <div className="text-[0.67rem] text-ink-faint leading-snug truncate">with {therapistName}</div>
       </div>
-      <GradePill result={result} />
+      <span className="shrink-0 flex justify-end" style={{ width: COL_GRADE }}>
+        <GradePill result={result} />
+      </span>
       <span
-        className="tabular text-[0.75rem] w-[52px] text-right shrink-0"
-        style={{ color: result.progressDelta >= 0 ? 'var(--color-sage-deep)' : 'var(--color-brick)' }}
+        className="tabular text-[0.76rem] font-bold text-right shrink-0"
+        style={{
+          width: COL_DELTA,
+          color: result.progressDelta >= 0 ? 'var(--color-sage-deep)' : 'var(--color-brick)',
+        }}
         title="Treatment progress moved this much, out of 100."
       >
         {result.progressDelta >= 0 ? '+' : '−'}
         {Math.abs(result.progressDelta).toFixed(1)}
       </span>
-      <span className="tabular text-[0.75rem] w-[62px] text-right text-ink-soft shrink-0">
+      <span
+        className="tabular text-[0.76rem] text-right text-ink-soft shrink-0"
+        style={{ width: COL_FEES }}
+      >
         {formatMoney(result.revenue)}
       </span>
     </div>
@@ -489,7 +558,8 @@ export function DayEndScreen() {
             Close up for the night
           </Button>
           <span className="text-[0.72rem] text-ink-faint">
-            Cash on hand after tonight: <span className="tabular">{formatMoney(cash)}</span>
+            Cash on hand after tonight:{' '}
+            <span className="tabular font-bold text-ink-soft">{formatMoney(cash)}</span>
           </span>
         </>
       }
@@ -525,6 +595,7 @@ export function DayEndScreen() {
         />
       ) : (
         <div className="flex flex-col">
+          <ResultHeader />
           {results.map((r) => (
             <ResultRow key={r.sessionId} result={r} />
           ))}
@@ -579,17 +650,22 @@ export function DayEndScreen() {
           {warnings.map((w) => (
             <li
               key={w.id}
-              className="card-warm px-2.5 py-1.5 flex items-start gap-2"
-              style={{
-                borderLeft: `3px solid ${w.severity >= 3 ? 'var(--color-brick)' : 'var(--color-amber-deep)'}`,
-              }}
+              className="card-warm relative overflow-hidden px-2.5 py-1.5 pl-3.5 flex items-start gap-2"
             >
+              <span
+                aria-hidden
+                className="absolute inset-y-0 left-0 w-[3px]"
+                style={{
+                  background: w.severity >= 3 ? 'var(--color-brick)' : 'var(--color-amber-deep)',
+                  boxShadow: `1px 0 0 color-mix(in oklab, ${w.severity >= 3 ? 'var(--color-brick)' : 'var(--color-amber-deep)'} 30%, transparent)`,
+                }}
+              />
               <span aria-hidden className="text-[0.95rem] leading-none mt-0.5">
                 {EXCEPTION_ICON[w.kind]}
               </span>
               <span className="min-w-0">
-                <span className="block text-[0.76rem] font-bold text-ink leading-snug">{w.label}</span>
-                <span className="block text-[0.69rem] text-ink-faint leading-snug">{w.detail}</span>
+                <span className="block text-[0.77rem] font-bold text-ink leading-snug">{w.label}</span>
+                <span className="block text-[0.7rem] text-ink-faint leading-[1.45]">{w.detail}</span>
               </span>
             </li>
           ))}
@@ -612,14 +688,14 @@ function Callout({
     tone === 'sage' ? 'var(--color-sage)' : tone === 'amber' ? 'var(--color-amber)' : 'var(--color-brick)';
   return (
     <div
-      className="rounded-[var(--radius-card)] px-2.5 py-2 flex items-center gap-2.5"
+      className="tt-hand px-2.5 py-2 flex items-center gap-2.5"
       style={{
-        background: `color-mix(in oklab, ${color} 13%, transparent)`,
-        border: `1px solid color-mix(in oklab, ${color} 32%, transparent)`,
+        background: `linear-gradient(180deg, color-mix(in oklab, ${color} 9%, transparent) 0%, color-mix(in oklab, ${color} 17%, transparent) 100%)`,
+        boxShadow: `inset 0 0 0 1px color-mix(in oklab, ${color} 30%, transparent), inset 0 1px 0 rgba(255,253,246,0.6), 0 1px 2px -1px rgba(24,46,46,0.22)`,
       }}
     >
       <span className="shrink-0 grid place-items-center">{icon}</span>
-      <span className="text-[0.78rem] text-ink leading-snug">{children}</span>
+      <span className="text-[0.79rem] text-ink leading-[1.5]">{children}</span>
     </div>
   );
 }
