@@ -506,12 +506,15 @@ export function animatePerson(p: PersonRig, dt: number, mode: PersonMode, reduce
 
 /** A soft armchair seen from the side. `dir` is the direction the sitter faces. */
 export function drawArmchair(g: Graphics, dir: 1 | -1, fabric: number): void {
-  const backX = dir === 1 ? -11.5 : 6;
-  g.roundRect(-11, -14, 22, 14, 3.5).fill(fabric);
-  g.roundRect(backX, -30, 5.5, 20, 2.6).fill(darken(fabric, 0.18));
-  g.roundRect(-8.6, -16.8, 17.2, 4.6, 2.2).fill(lighten(fabric, 0.16));
-  g.roundRect(dir * 7.6 - 2.3, -19.5, 4.6, 6.5, 2.2).fill(darken(fabric, 0.08));
-  g.roundRect(-10, -2.6, 20, 3, 1.4).fill({ color: PAL.ink, alpha: 0.12 });
+  const backX = dir === 1 ? -13.5 : 7;
+  g.roundRect(-13, -16, 26, 16, 4).fill(fabric);
+  g.roundRect(backX, -35, 6.5, 24, 3).fill(darken(fabric, 0.18));
+  g.roundRect(-10, -19, 20, 5, 2.4).fill(lighten(fabric, 0.16));
+  g.roundRect(dir * 9 - 2.6, -23, 5.2, 8, 2.4).fill(darken(fabric, 0.08));
+  g.roundRect(-11.5, -3, 23, 3.4, 1.6).fill({ color: PAL.ink, alpha: 0.12 });
+  // Feet.
+  g.roundRect(-11, -2, 3, 2.6, 1).fill(PAL.woodDeep);
+  g.roundRect(8, -2, 3, 2.6, 1).fill(PAL.woodDeep);
 }
 
 /** A plain wooden waiting-room chair. */
@@ -672,18 +675,19 @@ export function drawStairwell(g: Graphics, w: number, h: number): void {
   }
   // Mid landing.
   g.rect(0, -half - 5, w, 5).fill(PAL.woodDeep);
-  // Upper flight climbs right → left.
+  // Upper flight climbs right → left, drawn as solid blocks down to the
+  // landing so it reads as a staircase and not a row of floating slats.
   for (let i = 0; i < steps; i++) {
     const sx = w - ((i + 1) * w) / steps;
     const sy = -half - 5 - ((i + 1) * (half - 5)) / steps;
-    g.rect(sx, sy, w / steps + 1, 4).fill(i % 2 ? PAL.wood : lighten(PAL.wood, 0.07));
-    g.rect(sx, sy, w / steps + 1, 1.6).fill({ color: PAL.ink, alpha: 0.16 });
+    g.rect(sx, sy, w / steps + 1, -half - 5 - sy).fill(i % 2 ? PAL.wood : lighten(PAL.wood, 0.07));
+    g.rect(sx, sy, w / steps + 1, 2).fill({ color: PAL.ink, alpha: 0.18 });
   }
   // Banisters.
-  g.moveTo(2, -12);
-  g.lineTo(w - 2, -half - 12);
-  g.moveTo(w - 2, -half - 18);
-  g.lineTo(2, -h + 4);
+  g.moveTo(2, -14);
+  g.lineTo(w - 3, -half - 14);
+  g.moveTo(w - 3, -half - 20);
+  g.lineTo(3, -h + 2);
   g.stroke({ color: PAL.woodDeep, width: 2.6, cap: 'round' });
 }
 

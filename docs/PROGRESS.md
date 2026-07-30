@@ -116,7 +116,32 @@ onboarding, philosophy and the end screen.
 
 ## Phase 6 — Integration and polish
 
-Wired everything through `src/App.tsx`, played it, and fixed what playing revealed.
+Wired everything through `src/App.tsx`, then actually played it. Six real bugs came out of
+half an hour of play plus the test suite, and every one of them was invisible to typechecking:
+
+1. **A 60-year-old was referred for "Child Behavioral."** Client age was drawn independently of
+   the presenting condition. Worse, the session card then rated *Sand Tray* a "Strong fit" for a
+   57-year-old with PTSD, because Play Therapy techniques legitimately list trauma in `goodFor`.
+   Ages now follow the condition, and both `specializationFit` and `techniqueFit` account for
+   whether a school is built for the person actually in the chair.
+2. **`progressDelta` was computed before arc beats applied**, so the reflect card could report
+   +4 while the client sheet moved −2. It now reports the true total, and a beat that moves
+   progress says so in the reasons list. This one matters more than its size: the whole
+   no-hidden-punishments contract rests on the card and the sheet agreeing.
+3. **Events repeated within days of each other** — the same dilemma three mornings running, and
+   twice on one day. Found by `tools/playtest.ts`, which narrates a single run; the statistical
+   harness had smoothed it away completely. Events now carry a per-scope cooldown.
+4. **A flat per-session event chance** would have fired ~5 modals a day at late-game session
+   volume — the opposite of cozy. Capped per day.
+5. **Two events the engine raises by name had never been authored**, so the Act 1→2 hinge and
+   the post-burnout conversation were both dead — and the first-hire nudge silently retried
+   every single day of Act 1, because a no-op raise never lands in `firedOnce`.
+6. **`compress()` could exceed the practice ceiling** by 0.01 when the cap sat exactly on the
+   knee, and `capacity()` returned NaN for a save missing `practiceLevel`.
+
+Also caught during setup: `tsconfig.json` had `baseUrl`, which TypeScript 7 removed, so `tsc`
+was aborting on config parse and checking **nothing**. Every green typecheck before that fix was
+meaningless — worth knowing if you upgrade TypeScript under an older config.
 
 ---
 

@@ -15,6 +15,13 @@ understates how bad a real first hour can feel. Add a second policy (`--policy a
 deliberately mismatches, over-accepts and over-books, and re-check the low end of the grade
 distribution.
 
+**⚑ The harness smooths away pacing problems.** Both event bugs found during the build —
+repetition within days, and a modal count that would have hit ~5/day late game — were invisible
+in the statistical report and obvious in the first minute of `tools/playtest.ts`, which narrates
+a single run in order. Any new system that produces *moments* rather than *numbers* needs a
+playtest read, not just a sweep. Consider adding per-run frequency assertions to the harness
+(no event twice in N days; modals per day under a ceiling) so these fail loudly next time.
+
 **Cozy has no late-game choices.** Every Cozy run owns all 26 upgrades and runs 3 programs by day
 200. Either add a genuinely expensive top tier that even a rich practice must choose between, or
 accept it as correct for the mode and say so in the UI.
@@ -88,8 +95,16 @@ click a room to open that therapist's card, or a waiting client to see who they 
 cheapest large win available — the scene is already the home screen, it just is not a control
 surface yet.
 
+**Panels and the morning brief overlap.** Opening a panel while the day-start or day-end card is
+up leaves the two competing for the same space. The panel should either dismiss the card or dock
+beside it.
+
 **Panel state is not remembered.** Sort orders, filters and the expanded client all reset when a
 panel closes.
+
+**The session overlay overflows a 720px viewport.** It scrolls, but the third and fourth
+technique cards sit below the fold on a short screen, which undersells the choice. A two-column
+grid that fits four cards in 640px would be better.
 
 **No keyboard navigation between panels.** Space and 1/2/3 drive the clock, and the technique
 cards take 1–4, but there is no way to move between panels without the mouse.
