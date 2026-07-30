@@ -274,6 +274,24 @@ html .chip {
   transform: scale(0.978);
 }
 
+/* Calm mode and reduced motion keep the lighting change and drop the movement.
+   Not a duration override — the transform itself is what has to go. */
+html[data-calm='true'] .tt-card-lift:hover,
+html[data-reduced='true'] .tt-card-lift:hover,
+html[data-calm='true'] .btn:hover:not(:disabled),
+html[data-reduced='true'] .btn:hover:not(:disabled),
+html[data-calm='true'] .tt-pressable:hover,
+html[data-reduced='true'] .tt-pressable:hover {
+  transform: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  html .tt-card-lift:hover,
+  html .btn:hover:not(:disabled),
+  html .tt-pressable:hover {
+    transform: none;
+  }
+}
+
 /* A breakthrough should genuinely glow. Everything else stays quiet. */
 @keyframes tt-pill-breathe {
   0%, 100% { filter: drop-shadow(0 0 4px color-mix(in oklab, var(--color-amber) 42%, transparent)); }

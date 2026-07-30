@@ -136,7 +136,7 @@ function MoodMotif({ mood, color }: { mood: MoodKey; color: string }) {
   return (
     <svg
       viewBox="0 0 560 92"
-      preserveAspectRatio="xMidYMid slice"
+      preserveAspectRatio="xMaxYMid slice"
       className="absolute inset-0 w-full h-full pointer-events-none"
       aria-hidden
       style={{

@@ -439,7 +439,7 @@ export class OfficeWorld {
     const grainTex = grainTexture();
     if (grainTex) {
       const grain = new TilingSprite({ texture: grainTex, width: 4, height: 4 });
-      grain.alpha = 0.5;
+      grain.alpha = 0.34;
       grain.eventMode = 'none';
       this.grain = grain;
       this.root.addChild(grain);
@@ -1390,7 +1390,9 @@ export class OfficeWorld {
     const rig = this.cat?.rig ?? createCat();
     if (!this.cat) this.charLayer.addChild(rig.view);
     rig.view.zIndex = 5;
-    const x = clamp(this.cat?.x ?? room.x + 70, room.x + 30, room.x + room.w - 30);
+    // She keeps to the far side of the waiting room, past the desk and the
+    // coats — otherwise she reads as standing on the reception counter.
+    const x = clamp(this.cat?.x ?? room.x + 200, this.catMinX(room), this.catMaxX(room));
     this.cat = {
       rig,
       x,
@@ -1449,7 +1451,8 @@ export class OfficeWorld {
     } else if (c.hold <= 0) {
       c.pose = 'walk';
       c.hold = 14;
-      c.targetX = room.x + 40 + hash01(c.x, this.time, 64) * (room.w - 80);
+      const lo = this.catMinX(room);
+      c.targetX = lo + hash01(c.x, this.time, 64) * (this.catMaxX(room) - lo);
       setCatPose(c.rig, 'walk');
     }
 
@@ -1461,6 +1464,14 @@ export class OfficeWorld {
     c.rig.tail.rotation = Math.sin(c.rig.phase) * (c.pose === 'walk' ? 0.16 : 0.3);
     c.rig.body.y = c.pose === 'walk' ? -Math.abs(Math.sin(c.rig.phase)) * 0.7 : 0;
     c.rig.view.zIndex = c.x;
+  }
+
+  /** Her patch of floor: right of the reception desk, left of the cooler. */
+  private catMinX(room: Room): number {
+    return room.x + Math.min(162, room.w * 0.48);
+  }
+  private catMaxX(room: Room): number {
+    return room.x + Math.min(304, room.w - 32);
   }
 
   /** A free waiting-room chair, if there is one she can commandeer. */

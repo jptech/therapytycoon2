@@ -360,9 +360,10 @@ export function grainTexture(): Texture {
   for (let i = 0; i < S * S; i++) {
     // Squaring keeps most of the field empty and lets a few flecks read, which
     // is what paper actually looks like.
-    const n = Math.random();
-    const dark = n < 0.5;
-    const a = Math.pow(Math.random(), 2.2) * 64;
+    // Weighted toward the dark flecks: light speckle lifts the blacks and the
+    // night sky goes milky, which is the one thing grain must never do.
+    const dark = Math.random() < 0.66;
+    const a = Math.pow(Math.random(), 2.4) * (dark ? 62 : 40);
     const o = i * 4;
     d[o] = dark ? 22 : 255;
     d[o + 1] = dark ? 40 : 248;
@@ -797,6 +798,7 @@ export function animatePerson(p: PersonRig, dt: number, mode: PersonMode, reduce
       p.arms[0].rotation = -sw * 0.4 * amp;
       p.arms[1].rotation = sw * 0.4 * amp;
       p.rig.y = -Math.abs(Math.cos(p.phase)) * 1.5 * amp;
+      p.rig.x = 0;
       p.rig.rotation = p.facing * p.lean;
       p.head.rotation = -sw * 0.03 * amp;
       p.head.x = 0;
