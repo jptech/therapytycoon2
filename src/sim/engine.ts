@@ -67,7 +67,16 @@ import {
   upgradeById,
 } from '../content';
 import { EventBus } from './bus';
-import { applyEffect, activeTherapists, pickEvent, raiseEvent, raiseEventById, resolvePendingEvent, meetsRequirement } from './eventsys';
+import {
+  applyEffect,
+  activeTherapists,
+  pickEvent,
+  raiseEvent,
+  raiseEventById,
+  resolvePendingEvent,
+  meetsRequirement,
+  sweepSubjectCooldowns,
+} from './eventsys';
 import { generateCandidate, generateClient, generateTherapist, makePortrait, seedRelationships, testimonialFor } from './generators';
 import { traitMult, traitMod } from './quality';
 import { makeId, Rng } from './rng';
@@ -156,6 +165,7 @@ export function createInitialState(opts: NewGameOptions = {}): GameState {
     queuedEvents: [],
     firedOnce: [],
     eventCooldowns: {},
+    subjectCooldowns: {},
     flags: {},
     milestonesEarned: [],
     log: [],
@@ -930,7 +940,12 @@ export class Game {
         this.bus.emit('THERAPIST_BURNOUT', { therapistId: t.id });
         this.toast('Sabbatical', `${t.name} is taking ${t.statusDays} days. The practice will absorb it.`, 'warning');
         this.log(`${t.name} hit the wall and is taking ${t.statusDays} days off.`, 'staff', 'bad');
-        raiseEventById(s, 'ev_staff_burnout_aftermath', { therapistId: t.id }, rng);
+        // 'skip', not 'defer': this is the phone call the morning after, and it
+        // only means anything next to the sabbatical that prompted it. A second
+        // one for the same person a week later is the same conversation twice —
+        // and one saved for a fortnight is a call about a crisis they have
+        // already come back from.
+        raiseEventById(s, 'ev_staff_burnout_aftermath', { therapistId: t.id, onRepeat: 'skip' }, rng);
       }
 
       // Poaching.
@@ -994,7 +1009,12 @@ export class Game {
       // Insurance re-authorisation.
       if (c.authorizedSessions !== undefined && c.sessionsAttended >= c.authorizedSessions) {
         c.authorizedSessions += 10;
-        if (rng.chance(0.5)) raiseEventById(s, 'ev_practice_insurance_renegotiation', { clientId: c.id }, rng);
+        // The trigger is one client's authorisation running out, but the letter
+        // is practice-wide and never names them — so no clientId rides along,
+        // and the practice's own window is what governs it. Two clients
+        // exhausting on the same Tuesday used to produce two identical modals
+        // that morning; now the second is simply not a second letter.
+        if (rng.chance(0.5)) raiseEventById(s, 'ev_practice_insurance_renegotiation', { onRepeat: 'skip' }, rng);
       }
     }
 
@@ -1088,10 +1108,25 @@ export class Game {
       s.flags.showQuarterReview = true;
     }
 
+    // Promises coming due: arc beats, `followUp` chains, and beats pushed back
+    // off a live window. Every one of these was announced to the player days
+    // ago, so they default to `'defer'` — never dropped for being early.
+    sweepSubjectCooldowns(s);
     const due = s.queuedEvents.filter((q) => q.day <= s.day);
     s.queuedEvents = s.queuedEvents.filter((q) => q.day > s.day);
     for (const q of due) {
-      raiseEventById(s, q.eventId, { clientId: q.clientId, therapistId: q.therapistId }, rng);
+      // ...with one exception: a conversation about somebody who has left. A
+      // cure or a dropout removes the client from `s.clients`, and raising it
+      // anyway substitutes "your client" into text written about a person.
+      // Silence is kinder than a beat addressed to nobody.
+      if (q.clientId && !s.clients.some((c) => c.id === q.clientId && c.status === 'active')) continue;
+      if (q.therapistId && !s.therapists.some((t) => t.id === q.therapistId && t.status !== 'departed')) continue;
+      raiseEventById(
+        s,
+        q.eventId,
+        { clientId: q.clientId, therapistId: q.therapistId, deferrals: q.deferrals },
+        rng,
+      );
     }
 
     // A daily texture event.
@@ -1206,7 +1241,9 @@ export class Game {
       if (s.flags.cashWarning && s.cash > 1500) delete s.flags.cashWarning;
       if (s.cash < 900 && !s.flags.cashWarning) {
         s.flags.cashWarning = true;
-        raiseEventById(s, 'ev_practice_cash_warning', {}, this.rng);
+        // A meter crossing a line, not a promise: if the balance has already
+        // sounded this alarm recently, saying it again teaches nothing.
+        raiseEventById(s, 'ev_practice_cash_warning', { onRepeat: 'skip' }, this.rng);
       }
       return;
     }

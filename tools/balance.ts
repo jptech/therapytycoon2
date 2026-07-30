@@ -277,12 +277,14 @@ function pacingSection(reports: RunReport[], days: number): { lines: string[]; v
     // and a list of things working as designed. `pickEvent` consults
     // `state.eventCooldowns`, so a random draw can never land inside the
     // window — every cooldown line above is therefore a scripted
-    // `raiseEvent`/`raiseEventById`, which sets the cooldown and, by design,
-    // does not check it (src/sim/eventsys.ts).
+    // `raiseEvent`/`raiseEventById`. Those hold against `state.subjectCooldowns`
+    // now; what gets through is an `urgent` def or a different subject entirely
+    // (src/sim/eventsys.ts).
     out.push('');
-    out.push('  Note: pickEvent honours eventCooldowns, so none of these are random draws. Every');
-    out.push('  cooldown line is a scripted raise; raiseEvent sets the cooldown and deliberately');
-    out.push('  does not check it, so a follow-up to a choice always lands (src/sim/eventsys.ts).');
+    out.push('  Note: pickEvent honours eventCooldowns, so none of these are random draws — every');
+    out.push('  cooldown line is a scripted raise. Those now hold against a per-subject window:');
+    out.push('  a repeat is deferred rather than dropped, so no authored beat is lost. What lands');
+    out.push('  anyway is an `urgent` def, where arriving late is worse than arriving twice.');
     out.push(`  cooldown_global (${fmt(byKind.cooldown_global ?? 0)}) is mostly one arc beat reaching two different`);
     out.push('  clients in the same fortnight — expected, not a defect.');
     out.push(

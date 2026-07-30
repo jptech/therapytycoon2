@@ -1,6 +1,8 @@
 import { Suspense, lazy, useEffect } from 'react';
-import { isStuck, pendingChoice, pendingDecision, startClock, stopClock, useSim, useStore, useUi, saveNow } from './store';
+import { isStuck, startClock, stopClock, useSim, useStore, useUi, saveNow } from './store';
 import { useAudio } from './audio/useAudio';
+import { keysCardOwnsScreen, useModals } from './ui/modals';
+import { KeysCard } from './ui/shortcuts';
 
 import { Hud } from './ui/Hud';
 import { MorningBrief, DayEndScreen } from './ui/DayFlow';
@@ -60,16 +62,14 @@ const PANELS = {
 export function App() {
   const screen = useUi((u) => u.screen);
   const panel = useUi((u) => u.panel);
-  const hireOpen = useUi((u) => u.hireOpen);
   const dayPhase = useSim((s) => s.dayPhase);
-  const ended = useSim((s) => !!s.ended);
   const calm = useSim((s) => s.settings.calmMode);
   const reduced = useSim((s) => s.settings.reducedMotion);
-  const philosophyOffered = useSim((s) => !!s.flags.philosophyAvailable && !s.philosophy);
-  const quarterReview = useSim((s) => !!s.flags.showQuarterReview);
-  // Same predicates the modals use to pick their subject — see store.ts.
-  const hasSessionDecision = useSim((s) => !!pendingDecision(s));
-  const hasPlainEvent = useSim((s) => !!pendingChoice(s));
+  // One set of predicates for what owns the centre of the screen, shared with
+  // the keyboard layer so the two can never disagree — see src/ui/modals.ts.
+  // The pending-event ones come from src/sim/pending.ts, exactly as the modals
+  // themselves use to pick their subject.
+  const modal = useModals();
   const stuck = useSim(isStuck);
 
   useAudio();
@@ -138,13 +138,14 @@ export function App() {
       <Celebrations />
       <Onboarding />
 
-      {/* Modals, most-blocking first. */}
-      {ended ? <EndScreen /> : null}
-      {hasSessionDecision ? <SessionOverlay /> : null}
-      {!hasSessionDecision && hasPlainEvent ? <EventModal /> : null}
-      {hireOpen ? <HireModal /> : null}
-      {philosophyOffered ? <PhilosophyModal /> : null}
-      {quarterReview ? <QuarterReview /> : null}
+      {/* Modals, most-blocking first — same order as ModalState. */}
+      {modal.ended ? <EndScreen /> : null}
+      {modal.session ? <SessionOverlay /> : null}
+      {!modal.session && modal.event ? <EventModal /> : null}
+      {modal.hire ? <HireModal /> : null}
+      {modal.philosophy ? <PhilosophyModal /> : null}
+      {modal.quarter ? <QuarterReview /> : null}
+      {keysCardOwnsScreen(modal) ? <KeysCard /> : null}
     </div>
   );
 }

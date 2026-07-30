@@ -25,6 +25,10 @@ export const LIFE_EVENTS: readonly GameEventDef[] = [
       'clicks off in a kitchen that suddenly feels very far from the office.',
     weight: 3,
     mood: 'tense',
+    // A 9:40 phone call is not a save-for-later. If she rings twice inside a
+    // fortnight, the second call happens — a choice that says "expect a crisis
+    // call within the week" has to be able to keep its word.
+    urgent: true,
     chapters: ['trust', 'work'],
     conditions: ['depression', 'trauma', 'bipolar', 'substance', 'eating'],
     choices: [

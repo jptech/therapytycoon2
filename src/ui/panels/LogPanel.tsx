@@ -1,8 +1,8 @@
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { DAY_START_MINUTE } from '../../sim/balance';
 import type { LogEntry } from '../../sim/types';
 import { formatClock, formatDay } from '../../sim/util';
-import { useSim, useSimShallow, useStore } from '../../store';
+import { usePanelPrefs, useSim, useSimShallow, useStore } from '../../store';
 import { EmptyState, PanelShell } from '../primitives';
 
 /**
@@ -53,7 +53,10 @@ export function LogPanel() {
   // a fresh array to look at rather than the same reference every revision.
   const log = useSimShallow<LogEntry[]>((s) => s.log.slice());
 
-  const [hidden, setHidden] = useState<Set<Kind>>(() => new Set<Kind>());
+  // Which headings are switched off outlives the panel — reading the book is a
+  // thing you do in several sittings.
+  const [prefs, setPrefs] = usePanelPrefs('log');
+  const hidden = useMemo(() => new Set(prefs.hiddenKinds), [prefs.hiddenKinds]);
 
   const counts = useMemo(() => {
     const out = {} as Record<Kind, number>;
@@ -83,12 +86,7 @@ export function LogPanel() {
   const allOn = hidden.size === 0;
 
   const toggle = (k: Kind) =>
-    setHidden((prev) => {
-      const next = new Set(prev);
-      if (next.has(k)) next.delete(k);
-      else next.add(k);
-      return next;
-    });
+    setPrefs({ hiddenKinds: hidden.has(k) ? prefs.hiddenKinds.filter((x) => x !== k) : [...prefs.hiddenKinds, k] });
 
   return (
     <PanelShell
@@ -109,7 +107,7 @@ export function LogPanel() {
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-1.5 mb-3">
         <button
-          onClick={() => setHidden(new Set<Kind>())}
+          onClick={() => setPrefs({ hiddenKinds: [] })}
           aria-pressed={allOn}
           className="chip transition focus-visible:outline-2 focus-visible:outline-offset-2"
           style={{

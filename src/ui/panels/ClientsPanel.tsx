@@ -16,7 +16,15 @@ import {
 } from '../../sim/scheduler';
 import { CHAPTER_BLURB, CHAPTER_LABEL } from '../../sim/session';
 import type { ArcChapter, ConditionId, PaymentSource, SessionType } from '../../sim/types';
-import { useDispatch, useSim, useSimShallow, useStore, useUi } from '../../store';
+import {
+  useDispatch,
+  usePanelPrefs,
+  useSim,
+  useSimShallow,
+  useStore,
+  useUi,
+  type ClientSortKey,
+} from '../../store';
 import { Plant, Portrait } from '../Portrait';
 import { Button, Chip, EmptyState, Meter, PanelShell, RiskDot, Tooltip } from '../primitives';
 
@@ -71,7 +79,8 @@ const SESSION_TYPE_LABEL: Record<SessionType, string> = {
   group: 'Group',
 };
 
-type SortKey = 'priority' | 'progress' | 'unseen' | 'severity';
+/** The order lives in UiState so it survives closing the panel — see store.ts. */
+type SortKey = ClientSortKey;
 
 const SORT_LABEL: Record<SortKey, string> = {
   priority: 'Who needs you most',
@@ -162,7 +171,8 @@ function FilterChip({
 
 export function ClientsPanel() {
   const openPanel = useStore((s) => s.openPanel);
-  const [tab, setTab] = useState<'caseload' | 'waiting'>('caseload');
+  const [prefs, setPrefs] = usePanelPrefs('clients');
+  const tab = prefs.tab;
 
   const activeCount = useSim((s) => s.clients.filter((c) => c.status === 'active').length);
   const waitCount = useSim((s) => s.clients.filter((c) => c.status === 'waitlist').length);
@@ -188,10 +198,20 @@ export function ClientsPanel() {
         role="tablist"
         aria-label="Client views"
       >
-        <TabButton id="tab-caseload" panelId="panel-caseload" on={tab === 'caseload'} onClick={() => setTab('caseload')}>
+        <TabButton
+          id="tab-caseload"
+          panelId="panel-caseload"
+          on={tab === 'caseload'}
+          onClick={() => setPrefs({ tab: 'caseload' })}
+        >
           Caseload <span className="tabular opacity-70">{activeCount}</span>
         </TabButton>
-        <TabButton id="tab-waiting" panelId="panel-waiting" on={tab === 'waiting'} onClick={() => setTab('waiting')}>
+        <TabButton
+          id="tab-waiting"
+          panelId="panel-waiting"
+          on={tab === 'waiting'}
+          onClick={() => setPrefs({ tab: 'waiting' })}
+        >
           Waiting <span className="tabular opacity-70">{waitCount}</span>
         </TabButton>
       </div>
@@ -247,11 +267,10 @@ function TabButton({
 // ── Caseload ─────────────────────────────────────────────────────────────────
 
 function Caseload({ total }: { total: number }) {
-  const [sort, setSort] = useState<SortKey>('priority');
-  const [fRisk, setFRisk] = useState(false);
-  const [fUnbooked, setFUnbooked] = useState(false);
-  const [fComplex, setFComplex] = useState(false);
-  const [fChapter, setFChapter] = useState<ArcChapter | 'all'>('all');
+  // Sort and filters are remembered for the session: you close this panel to
+  // book someone and come back to the arrangement you were working in.
+  const [prefs, setPrefs] = usePanelPrefs('clients');
+  const { sort, atRisk: fRisk, unbooked: fUnbooked, complex: fComplex, chapter: fChapter } = prefs;
 
   const orderKey = useSim((s) => {
     const rows = s.clients.filter((c) => {
@@ -294,7 +313,7 @@ function Caseload({ total }: { total: number }) {
         <span className="text-[0.63rem] font-extrabold uppercase tracking-[0.09em] text-ink-faint mr-0.5">
           Sort
         </span>
-        <SoftSelect value={sort} onChange={(v) => setSort(v as SortKey)} label="Sort the caseload">
+        <SoftSelect value={sort} onChange={(v) => setPrefs({ sort: v as SortKey })} label="Sort the caseload">
           {(Object.keys(SORT_LABEL) as SortKey[]).map((k) => (
             <option key={k} value={k}>
               {SORT_LABEL[k]}
@@ -304,7 +323,7 @@ function Caseload({ total }: { total: number }) {
         <span className="w-px h-4 mx-1" style={{ background: 'color-mix(in oklab, var(--color-ink) 14%, transparent)' }} />
         <FilterChip
           on={fRisk}
-          onClick={() => setFRisk((v) => !v)}
+          onClick={() => setPrefs({ atRisk: !fRisk })}
           color="var(--color-brick)"
           title="Patience or stability slipping"
         >
@@ -312,20 +331,20 @@ function Caseload({ total }: { total: number }) {
         </FilterChip>
         <FilterChip
           on={fUnbooked}
-          onClick={() => setFUnbooked((v) => !v)}
+          onClick={() => setPrefs({ unbooked: !fUnbooked })}
           color="var(--color-amber-deep)"
           title="No hour on today's schedule"
         >
           Unbooked today
         </FilterChip>
-        <FilterChip on={fComplex} onClick={() => setFComplex((v) => !v)} color="var(--color-plum)">
+        <FilterChip on={fComplex} onClick={() => setPrefs({ complex: !fComplex })} color="var(--color-plum)">
           Complex
         </FilterChip>
         {(['trust', 'work', 'consolidation'] as ArcChapter[]).map((ch) => (
           <FilterChip
             key={ch}
             on={fChapter === ch}
-            onClick={() => setFChapter((v) => (v === ch ? 'all' : ch))}
+            onClick={() => setPrefs({ chapter: fChapter === ch ? 'all' : ch })}
             color={CHAPTER_COLOR[ch]}
             title={CHAPTER_BLURB[ch]}
           >

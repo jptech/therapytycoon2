@@ -1,6 +1,7 @@
 import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { placeAnchored } from './anchor';
+import { setPanelWidth } from './dock';
 
 /** Shared building blocks. Every panel is assembled from these so the game
  *  reads as one designed object rather than a pile of screens. */
@@ -753,17 +754,55 @@ export function PanelShell({
   wide?: boolean;
   icon?: ReactNode;
 }) {
+  const ref = useRef<HTMLElement | null>(null);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key !== 'Escape') return;
+      // A modal sitting on top of the panel owns Escape. Without this, one press
+      // dismissed the decision *and* the panel underneath it, which reads as the
+      // game losing your place.
+      if (document.querySelector('[role="dialog"]')) return;
+      onClose();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
 
+  // Panels are opened from the keyboard as well as the rail, so the panel takes
+  // focus when it arrives: Tab then walks its contents instead of resuming
+  // somewhere behind it, and a screen reader follows the move.
+  useEffect(() => {
+    ref.current?.focus({ preventScroll: true });
+  }, []);
+
+  // Publish the room this panel is taking so the day cards can dock beside it
+  // rather than fight it for the middle of the screen. Measured rather than
+  // looked up in a table of widths — see src/ui/dock.ts.
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    // `offsetLeft`, not `getBoundingClientRect` — the panel is mid slide-in
+    // animation on the first measurement and a transform would report it as
+    // wider than it is about to be.
+    const publish = () => setPanelWidth(window.innerWidth - el.offsetLeft);
+    publish();
+    const ro = new ResizeObserver(publish);
+    ro.observe(el);
+    window.addEventListener('resize', publish);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener('resize', publish);
+      setPanelWidth(0);
+    };
+  }, []);
+
   return (
     <aside
-      className={`tt-panel-in absolute right-3 bottom-3 top-[calc(var(--hud-h)+0.5rem)] z-30 flex flex-col paper overflow-hidden ${
+      ref={ref}
+      tabIndex={-1}
+      aria-label={title}
+      className={`tt-panel-in absolute right-3 bottom-3 top-[calc(var(--hud-h)+0.5rem)] z-30 flex flex-col paper overflow-hidden outline-none ${
         wide ? 'w-[min(760px,calc(100%-1.5rem))]' : 'w-[min(460px,calc(100%-1.5rem))]'
       }`}
     >

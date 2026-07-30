@@ -86,16 +86,22 @@ split into same-subject and different-subject, the client-scope modal cap, repea
 `once` events firing twice. `--strict` exits nonzero. Every example line prints the exact
 `bun run balance` command that reproduces it.
 
-It found a live defect on its first run — see "Scripted event raises ignore the cooldown" below.
+It found a live defect on its first run, which is now fixed — see "Scripted event raises ignored
+the cooldown" below for what was left standing.
 
-### Standard no longer collapses at all — **S**
+### Standard barely collapses, and Challenge may now bite too hard — **S**
 
-Measured 0/40 collapses, down from 5/40 before the Phase 6/7 fixes (age-appropriate referrals and
-the event-pacing changes both shifted it). The spread is still legible — the p10 run owns 4 of 26
-upgrades against p90's 26 — but the floor has come up and the mode now never bites. Either that is
-right for a cozy game's default, or Standard needs a little of Challenge's margin pressure back.
-The number to move is `DIFFICULTIES.standard.expenseMult`; re-run the sweep and update the table
-in docs/BALANCE.md.
+Standard measures 2/40 collapses, up from 0/40 and still down from 5/40 before the Phase 6/7 fixes.
+The two it now has arrived with the event-repeat fix, which closed a per-client cash-and-morale
+faucet nobody had noticed (`ev_practice_insurance_renegotiation`, ~50 raises a run). The spread is
+legible — the p10 run owns 4 of 26 upgrades against p90's 26 — but the floor is still high for a
+mode that is meant to be the default challenge.
+
+The same change pushed Challenge from 14/40 collapses to 17/40 and its median cash from $4,723 to
+$155, which is the top of "hard and winnable" and worth a look before it is the bottom of
+"punishing". Nothing was retuned to compensate; the numbers stand as they fell. The knobs are
+`DIFFICULTIES.standard.expenseMult` and `DIFFICULTIES.challenge.expenseMult`; re-run the sweep and
+update the table in docs/BALANCE.md.
 
 ### Cozy has no late-game choices — **S**
 
@@ -103,24 +109,27 @@ Every Cozy run owns all 26 upgrades and runs 3 programs by day 200. Either add a
 expensive top tier that even a rich practice must choose between, or accept it as correct for the
 mode and say so in the UI. Currently it is unstated either way.
 
-### ⚑ Scripted event raises ignore the cooldown — **S**
+### ~~Scripted event raises ignored the cooldown~~ — **done**
 
-Found by the new pacing assertions, on their first run. `pickEvent` consults
-`state.eventCooldowns`, so a *random* draw can never land inside the window — but `raiseEvent`
-only ever *sets* the cooldown, so every scripted raise walks straight through it. 120 of 120
-reasonable 200-day runs violate. Two of the offenders are real and small:
+`state.subjectCooldowns` keys the window by `eventId@subject`, and a scripted raise that lands
+inside one is **held**, not dropped: deferred into `state.queuedEvents` for the day it lifts, or
+skipped only when the caller says the raise promised nothing (`onRepeat: 'skip'`). Same-subject
+repeats went from 6,543 to 8 over 120 reasonable runs, and from 11,706 to 4 under adversarial play;
+every survivor is `ev_client_crisis_call`, which is authored `urgent` and is meant to come round
+again. A second rule keeps one conversation to one morning, which is what the narrated run actually
+complained about. Full write-up in docs/BALANCE.md → Pacing.
 
-- **`ev_practice_insurance_renegotiation` is scoped wrong**, not raised wrong. `engine.ts` raises
-  it per client when that client's authorisation runs out, but it is authored `scope: 'practice'`,
-  so a per-client trigger inherits a practice-wide 20-day window and re-fires the same morning.
-- **`ev_staff_burnout_aftermath` re-fires for the same therapist** inside its 16-day window,
-  because `SABBATICAL_DAYS` is 2–4.
+Two things it deliberately did **not** fix, both still open:
 
-The rest is one event template being reused for *different* people, which is what a per-client arc
-beat necessarily does and is not a defect — which is why the assertion splits same-subject from
-different-subject. **Do not "fix" this by having `raiseEvent` return early on cooldown**: arc beats
-and follow-ups reach the system through that path, and a silent `return undefined` deletes them.
-See the long note in docs/BALANCE.md before touching `eventsys.ts`.
+- **`cooldown_global` is untouched** — 12,184 in the same sweep. It is one template reaching two
+  different people inside a fortnight, which is what a per-client arc necessarily does. The reason
+  it *feels* repetitive is content, not cooldowns: `ev_client_asks_to_end` is the only "my client
+  wants to stop" event in the game, so all fifty clients route through the same modal. More
+  variants of that beat is the fix. See "Late-game events are quiet" below.
+- **A therapist can still hit the wall twice in a fortnight.** The duplicate *conversation* is
+  suppressed, but `SABBATICAL_DAYS` (2–4) plus `strain = 12` on return means the adversarial player
+  can put the same person back into burnout inside the event's 16-day window. That is a difficulty
+  question about the retention loop, not a pacing one.
 
 ### ~~Poaching and departures are untested at scale~~ — **done**
 
@@ -167,10 +176,26 @@ card, or a waiting client to see who they are. It is already the home screen; ma
 interactive is the cheapest large win available. Start in `src/scene/OfficeScene.tsx` — the world
 already keeps a `roomByTherapist` map and per-actor positions, so hit-testing is mostly wiring.
 
-### Panels and the day cards overlap — **S**
+### ~~Panels and the day cards overlap~~ — **done**
 
-Opening a panel while the morning brief or day-end card is up leaves the two competing for the
-same space. The panel should either dismiss the card or dock beside it. `src/App.tsx`.
+They dock. The morning brief is where the day is decided and the day-end card is the point of the
+day, so dismissing one to show a spreadsheet was never the right call — and the brief's own footer
+*invites* you to open the schedule. Opening a panel now slides the notebook page left into the
+column beside it and both stay live: you can book someone in the panel and then press "Open the
+doors" without closing anything.
+
+`src/ui/dock.ts` holds the arithmetic, pure and unit-tested next to `anchor.ts`. `PanelShell`
+publishes its own measured width to it rather than anyone keeping a table of panel widths, so a
+panel that changes its shell cannot desync the card beside it.
+
+Below a readable width the card **yields** instead: it stays mounted, fades back, goes `inert`, and
+returns to exactly where it was the moment the panel closes. That is the fallback, not the plan —
+the wide panel shell docks from 1278px and the narrow one from 978px, so a 1280px laptop clears the
+floor by 2px. Anything that nudges `DOCK_GAP`, `RAIL_INSET` or the panel's right margin flips that
+very common width to the yielding path, so move `CARD_MIN_WIDTH` with it. (The "before the doors
+open" chip in the HUD now shows from
+`lg` rather than `xl`, because on the screens where the card yields it is the only thing left
+saying the day is holding.)
 
 ### The scene has a lot of dead sky — **S**
 
@@ -179,15 +204,37 @@ as deliberate at 900px tall and as wasted space on a wider screen. Either fill i
 weather, birds) or scale the building to the available height. `layout()` in `src/scene/office.ts`
 already computes a single fit transform, so this is one number.
 
-### Panel state is not remembered — **S**
+### ~~Panel state is not remembered~~ — **done**
 
-Sort orders, filters and the expanded client all reset when a panel closes. Lift into
-`UiState` in `src/store.ts`.
+`UiState.panels` in `src/store.ts` holds a `PanelPrefs` object, typed per panel rather than a bag
+of unknowns, read through `usePanelPrefs('clients')` which returns `[prefs, patch]` and
+shallow-compares so one panel's arrangement moving never re-renders another's. What it remembers:
+the caseload's tab, sort order and five filters; the day book's switched-off headings; and which
+disclosure is open on which therapist's card in the team panel (keyed by therapist, because "I had
+Maya's training list open" is what you meant). The expanded client was already lifted, as
+`selectedClientId`.
 
-### No keyboard navigation between panels — **S**
+Presentation only, and deliberately so: it never goes through `dispatch`, never reaches a save, and
+a replay does not care about it. It resets on a new run and on adopting a save, because those
+filters describe a caseload that no longer exists.
 
-Space and 1/2/3 drive the clock and the technique cards take 1–4, but there is no way to move
-between panels without a mouse.
+### ~~No keyboard navigation between panels~~ — **done**
+
+`[` and `]` step to the door before or after this one on the rail, wrapping; from no panel at all,
+`]` opens the first and `[` the last, so the keyboard can always get in. The panel takes focus when
+it arrives, so Tab then walks its contents. Escape closes it — and `PanelShell` now checks for a
+`[role="dialog"]` above it first, because one press used to dismiss the decision *and* the panel
+underneath it.
+
+Discoverability was the real work. There is a quiet **⌨ ?** door at the foot of the rail and a
+**Keys** section in the comfort panel, both rendering one list from `src/ui/shortcuts.tsx`, and `?`
+opens the same card from anywhere.
+
+The keys are suppressed whenever anything owns the centre of the screen. That predicate is now
+shared: `src/ui/modals.ts` is the single source for which modal is up, `App.tsx` mounts from it and
+the keyboard layer suppresses from it, so the two cannot drift — the same fix, one layer up, as
+`src/sim/pending.ts`. (It also closed a small existing bug: space and the speed keys used to fire
+underneath the hiring modal and the quarter review.)
 
 ### Mobile is unhandled — **L**
 

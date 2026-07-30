@@ -321,10 +321,11 @@ export function playRun(opts: AutoplayOptions): RunReport {
  * `src/sim/eventsys.ts` actually promises:
  *
  *   · a non-`once` event may not come round again inside its scope's cooldown.
- *     `pickEvent` enforces this for random draws; scripted `raiseEvent` /
- *     `raiseEventById` calls deliberately do not check it (they *set* it, so a
- *     follow-up cannot be echoed by the next random draw). So every cooldown
- *     violation here is a scripted raise — and the two are recorded apart,
+ *     `pickEvent` enforces this for random draws, and scripted `raiseEvent` /
+ *     `raiseEventById` calls hold against a per-subject window — deferring the
+ *     beat rather than dropping it, so nothing authored is lost. So every
+ *     cooldown violation here is a scripted raise that was let through on
+ *     purpose: an `urgent` def, or a different subject. The two are kept apart,
  *     because `cooldown_global` for a *different* subject is usually just an
  *     arc beat reaching two clients in the same fortnight, while
  *     `cooldown_same_subject` is a repeat the player sits through twice;

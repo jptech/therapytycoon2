@@ -193,6 +193,54 @@ identified. If it recurs, the console names the pending event or the boundary sh
 
 ---
 
+## Phase 8 — The same conversation, twice
+
+The pacing assertions had been in the harness for about an hour when they turned up a live defect,
+and it is a good example of a bug that only a *moment*-shaped test can see: 120 of 120 reasonable
+200-day runs were re-raising an event inside its own cooldown, and every statistical table in
+docs/BALANCE.md was perfectly happy about it.
+
+**`pickEvent` checked the cooldown; `raiseEvent` only ever set it.** So random draws were spaced
+and scripted raises were not, which is backwards — the scripted ones are the beats that matter.
+The visible symptom was the cosiest possible thing going wrong: a client asks whether she should
+stop therapy, you spend a wrenching minute deciding, and the same conversation reopens the next
+morning. Two clients' insurance authorisation running out on the same Tuesday produced two
+identical practice-wide letters in the same brief.
+
+**The obvious fix was a trap, and the harness's own notes said so.** Making `raiseEvent` return
+`undefined` on a live cooldown fixes every count in the report and quietly deletes narrative beats,
+because arc beats and `followUp` chains both reach the event system through `state.queuedEvents`
+and **no caller on that path reads the return value**. `beat_asks_to_bring_someone` would have gone
+on promising a conversation that never arrived — the exact failure this codebase already has a
+scar from. So the rule became *hold*, not *refuse*: a raise that cannot land today is re-queued for
+the day the window lifts, and only a caller who explicitly says it promised nothing
+(`onRepeat: 'skip'`) gets to drop one. `EVENT_MAX_DEFERRALS` bounds the wait, because at the limit
+"deferred" and "deleted" are the same word.
+
+**Two of the offenders were not event-system bugs at all.** The insurance renegotiation was raised
+per client but authored `scope: 'practice'` — a practice-wide letter that never names the client,
+triggered by one client's paperwork. It is fixed by not passing a `clientId` and by treating the
+practice as its own subject. The burnout aftermath call is the morning after a sabbatical and means
+nothing detached from it, so it skips rather than waits. Both were fixed where they lived.
+
+**And then the narrated run said it was not fixed.** The sweep reported same-subject repeats down
+from 6,543 to 8. `bun run playtest` reported "I think I'm done." twice in one morning and again the
+next — three different clients, all legitimate, and unreadable as anything but a bug. The morning
+queue drains before the player answers anything, so both modals went up together. One more rule —
+one conversation per morning, whoever it is about — took days carrying a duplicated modal title
+from 14 to 1 over 12 × 200 days. Which is the third time in this build that the statistical harness
+and the narrated run disagreed, and the third time the narrated run was right about how it *feels*.
+
+**The cost is in the ledger, and it is not small.** That insurance event was firing about fifty
+times a run, and three of its four choices hand out cash or practice-wide morale. Closing it took
+seven points off average morale everywhere and pushed Challenge from 14/40 collapses to 17/40. It
+was an aggregate faucet scaling with the client list — the same shape as the three aggregate-bonus
+bugs before it, wearing an event's clothes — so the numbers were left where they fell rather than
+compensated for. That decision is recorded in docs/BALANCE.md with the before/after table, because
+the next person to read the curves deserves to know which of them moved for a pacing fix.
+
+---
+
 ## What I would tell the next person
 
 **The harness is the product.** Every serious balance problem in this build was found by reading a

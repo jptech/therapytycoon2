@@ -4,7 +4,7 @@ import { bus } from './sim/bus';
 import { MS_PER_GAME_MINUTE } from './sim/balance';
 import { Game, type NewGameOptions } from './sim/engine';
 import { Recorder, downloadReplay, replayStamp, type ReplayLog } from './sim/replay';
-import type { GameAction, GameState } from './sim/types';
+import type { ArcChapter, GameAction, GameState, LogEntry } from './sim/types';
 import { hasSave, loadGame, loadLegacy, pushAutosave, saveGame, saveLegacy } from './sim/save';
 
 /**
@@ -28,6 +28,49 @@ export type PanelId =
   | 'settings'
   | 'log';
 
+/** How the caseload is ordered. Mirrors the labels in ClientsPanel. */
+export type ClientSortKey = 'priority' | 'progress' | 'unseen' | 'severity';
+
+/**
+ * How each panel was arranged the last time the player looked at it.
+ *
+ * This is presentation, not simulation: it never goes through `dispatch`, never
+ * reaches a save file, and a replay does not care about it. It lives here
+ * because a panel is unmounted the moment it closes, and losing your sort order
+ * every time you glance at the schedule is a small, constant tax on playing.
+ *
+ * Typed per panel on purpose — a bag of unknowns would let a typo pass.
+ */
+export interface PanelPrefs {
+  clients: {
+    tab: 'caseload' | 'waiting';
+    sort: ClientSortKey;
+    atRisk: boolean;
+    unbooked: boolean;
+    complex: boolean;
+    chapter: ArcChapter | 'all';
+  };
+  staff: {
+    /** Disclosures left open, as `therapistId#section` — see staffSectionKey(). */
+    openSections: string[];
+  };
+  log: {
+    /** Entry kinds the player has switched off. */
+    hiddenKinds: LogEntry['kind'][];
+  };
+}
+
+export const DEFAULT_PANEL_PREFS: PanelPrefs = {
+  clients: { tab: 'caseload', sort: 'priority', atRisk: false, unbooked: false, complex: false, chapter: 'all' },
+  staff: { openSections: [] },
+  log: { hiddenKinds: [] },
+};
+
+/** Key for one therapist's disclosure section, so the two ends agree on it. */
+export function staffSectionKey(therapistId: string, section: string): string {
+  return `${therapistId}#${section}`;
+}
+
 export interface UiState {
   panel: PanelId | null;
   selectedClientId?: string;
@@ -35,8 +78,11 @@ export interface UiState {
   hireOpen: boolean;
   philosophyOpen: boolean;
   quarterReviewOpen: boolean;
+  /** The shortcut card. UI only — see src/ui/shortcuts.tsx. */
+  keysOpen: boolean;
   reflectResult?: import('./sim/types').SessionResult;
   screen: 'title' | 'setup' | 'playing' | 'ended';
+  panels: PanelPrefs;
 }
 
 interface Store {
@@ -52,6 +98,7 @@ interface Store {
   save: () => void;
   setUi: (patch: Partial<UiState>) => void;
   openPanel: (p: PanelId | null) => void;
+  setPanelPrefs: <K extends keyof PanelPrefs>(panel: K, patch: Partial<PanelPrefs[K]>) => void;
 }
 
 const legacy = loadLegacy();
@@ -75,7 +122,9 @@ export const useStore = create<Store>((set, get) => ({
     hireOpen: false,
     philosophyOpen: false,
     quarterReviewOpen: false,
+    keysOpen: false,
     screen: 'title',
+    panels: DEFAULT_PANEL_PREFS,
   },
 
   dispatch(action) {
@@ -95,7 +144,9 @@ export const useStore = create<Store>((set, get) => ({
     set({
       game,
       rev: get().rev + 1,
-      ui: { ...get().ui, screen: 'playing', panel: null },
+      // A new practice starts with a clean desk — no filters left over from the
+      // last one, whose caseload has nothing to do with this one's.
+      ui: { ...get().ui, screen: 'playing', panel: null, panels: DEFAULT_PANEL_PREFS },
     });
     saveGame(game.state, 'New run');
   },
@@ -107,7 +158,7 @@ export const useStore = create<Store>((set, get) => ({
     set({
       game: new Game(state, bus),
       rev: get().rev + 1,
-      ui: { ...get().ui, screen: 'playing', panel: null },
+      ui: { ...get().ui, screen: 'playing', panel: null, panels: DEFAULT_PANEL_PREFS },
     });
     return true;
   },
@@ -117,7 +168,7 @@ export const useStore = create<Store>((set, get) => ({
     set({
       game: new Game(state, bus),
       rev: get().rev + 1,
-      ui: { ...get().ui, screen: 'playing', panel: null, reflectResult: undefined },
+      ui: { ...get().ui, screen: 'playing', panel: null, reflectResult: undefined, panels: DEFAULT_PANEL_PREFS },
     });
     saveGame(state, `Day ${state.day}`);
   },
@@ -135,6 +186,11 @@ export const useStore = create<Store>((set, get) => ({
 
   openPanel(p) {
     set({ ui: { ...get().ui, panel: get().ui.panel === p ? null : p } });
+  },
+
+  setPanelPrefs(panel, patch) {
+    const ui = get().ui;
+    set({ ui: { ...ui, panels: { ...ui.panels, [panel]: { ...ui.panels[panel], ...patch } } } });
   },
 }));
 
@@ -166,6 +222,19 @@ export function useDispatch() {
 
 export function useUi<T>(selector: (u: UiState) => T): T {
   return useStore((s) => selector(s.ui));
+}
+
+/**
+ * One panel's remembered arrangement, plus a setter for it. Shallow-compared,
+ * so a panel only re-renders when its own prefs move — not when another panel's
+ * do, and not on every sim tick.
+ */
+export function usePanelPrefs<K extends keyof PanelPrefs>(
+  panel: K,
+): [PanelPrefs[K], (patch: Partial<PanelPrefs[K]>) => void] {
+  const prefs = useStore(useShallow((s: Store) => s.ui.panels[panel]));
+  const set = useStore((s) => s.setPanelPrefs);
+  return [prefs, (patch) => set(panel, patch)];
 }
 
 /** Escape hatch for imperative reads (Pixi scene, audio) — never call in render. */

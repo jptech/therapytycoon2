@@ -18,7 +18,7 @@ export const MS_PER_GAME_MINUTE = 100;
 /** Fraction through a session at which the decision beat fires. */
 export const DECISION_AT = 0.55;
 
-export const SAVE_VERSION = 6;
+export const SAVE_VERSION = 7;
 
 /** Bumped when the shape of a recorded action log changes. See src/sim/replay.ts. */
 export const REPLAY_FORMAT = 1;
@@ -35,6 +35,11 @@ export const REPLAY_MAX_ENTRIES = 200_000;
  * How long before a non-unique event may be drawn again. Without this the same
  * dilemma lands three days running and the texture reads as a slot machine —
  * which is exactly the complaint v1's decision events earned.
+ *
+ * The same window governs the *per-subject* cooldown (`state.subjectCooldowns`):
+ * the number that stops a dilemma repeating across the practice is the right
+ * number for stopping it repeating for one person, and two numbers here would
+ * only ever be tuned apart by accident.
  */
 export const EVENT_COOLDOWN_DAYS: Record<string, number> = {
   client: 14,
@@ -44,6 +49,16 @@ export const EVENT_COOLDOWN_DAYS: Record<string, number> = {
   program: 18,
   session: 0,
 };
+
+/**
+ * How many times a promised beat may be pushed back off a live subject window
+ * before it is delivered regardless. It exists because "defer" and "delete"
+ * become the same thing at the limit: an event whose subject keeps getting the
+ * same conversation would otherwise slide forward forever and never arrive.
+ * One push-back is enough to break up a same-morning collision; two would start
+ * to feel like the beat is dodging the player.
+ */
+export const EVENT_MAX_DEFERRALS = 1;
 
 /**
  * A hard cap on modals per day. Late game runs 40 sessions, and a flat per-session

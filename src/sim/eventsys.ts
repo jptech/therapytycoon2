@@ -1,4 +1,9 @@
-import { COMMUNITY_TRUST_GAIN_FALLOFF, EVENT_COOLDOWN_DAYS, REPUTATION_GAIN_FALLOFF } from './balance';
+import {
+  COMMUNITY_TRUST_GAIN_FALLOFF,
+  EVENT_COOLDOWN_DAYS,
+  EVENT_MAX_DEFERRALS,
+  REPUTATION_GAIN_FALLOFF,
+} from './balance';
 import { eventById, EVENTS, techniqueById, upgradeById } from '../content';
 import { makeId, type Rng } from './rng';
 import type {
@@ -64,10 +69,64 @@ function substitute(text: string, state: GameState, client?: Client, therapist?:
     .replace(/\{practice\}/g, state.practiceName);
 }
 
+/**
+ * What a scripted raise should do when this subject is still inside the event's
+ * window — the question `raiseEvent` used to duck by never checking.
+ *
+ * `'defer'` re-queues the beat for the day the window lifts. It is the default
+ * because it is the safe one: arc beats and `followUp` chains reach this
+ * function through `state.queuedEvents`, nobody reads the return value, and a
+ * silent `return undefined` on that path *deletes* a promised conversation.
+ *
+ * `'skip'` drops it. Only for raises that promise nothing — an ambient nudge
+ * the engine throws when a meter crosses a line. Nothing told the player this
+ * was coming, so nothing is broken by its not arriving.
+ */
+export type RepeatPolicy = 'defer' | 'skip';
+
 export interface RaiseOptions {
   clientId?: string;
   therapistId?: string;
   sessionId?: string;
+  /** See `RepeatPolicy`. Defaults to `'defer'` — losing a beat is the worse failure. */
+  onRepeat?: RepeatPolicy;
+  /** Carried by a deferred beat coming round again; see `EVENT_MAX_DEFERRALS`. */
+  deferrals?: number;
+}
+
+/** Practice- and day-scope events are about the practice, not about a person. */
+export const PRACTICE_SUBJECT = 'practice';
+
+/**
+ * Who an event is *about*, decided by its scope rather than by whatever context
+ * happened to ride along on the raise. `ev_practice_insurance_renegotiation`
+ * used to carry the clientId whose authorisation ran out, but it is a
+ * practice-wide letter about a panel contract: the subject is the practice, and
+ * two of them the same morning is one repeat, not two unrelated events.
+ *
+ * This mirrors exactly what the balance harness reconstructs when it decides
+ * whether a repeat is `cooldown_same_subject` or `cooldown_global`.
+ */
+export function eventSubject(
+  scope: EventScope,
+  who: { clientId?: string; therapistId?: string },
+): string {
+  if (scope === 'client' && who.clientId) return who.clientId;
+  if (scope === 'staff' && who.therapistId) return who.therapistId;
+  return PRACTICE_SUBJECT;
+}
+
+export function subjectCooldownKey(eventId: string, subject: string): string {
+  return `${eventId}@${subject}`;
+}
+
+/** Drops windows that have already lifted, so the map cannot grow with the client list. */
+export function sweepSubjectCooldowns(state: GameState): void {
+  const cds = state.subjectCooldowns;
+  if (!cds) return;
+  for (const key of Object.keys(cds)) {
+    if (cds[key] <= state.day) delete cds[key];
+  }
 }
 
 export function raiseEvent(
@@ -83,11 +142,53 @@ export function raiseEvent(
   const choices = def.choices.filter((ch) => meetsRequirement(state, ch.requires, therapist));
   if (!choices.length) return undefined;
 
+  // ── The same conversation, too soon ─────────────────────────────────────────
+  // `pickEvent` has always refused to draw inside a window; scripted raises
+  // walked straight through one, which is how the same client came to be asked
+  // whether she wanted to stop therapy twice in six days.
+  state.subjectCooldowns ??= {};
+  const subject = eventSubject(def.scope, opts);
+  const key = subjectCooldownKey(def.id, subject);
+
+  // Already on screen for this person: a second copy is a duplicate, not a
+  // beat. Re-queueing it would only guarantee the player answers it twice.
+  if (state.pendingEvents.some((p) => p.def.id === def.id && eventSubject(p.def.scope, p) === subject)) {
+    return undefined;
+  }
+
+  // Wait for the window to lift for *this* subject — or, failing that, for
+  // tomorrow, because two of the same conversation in one morning reads as a
+  // bug even when it is honestly two different people. The morning queue drains
+  // before the player answers anything, so both would go up together.
+  const holdUntil =
+    (state.subjectCooldowns[key] ?? 0) > state.day
+      ? Math.max(state.subjectCooldowns[key], state.day + 1)
+      : state.pendingEvents.some((p) => p.def.id === def.id)
+        ? state.day + 1
+        : 0;
+
+  if (holdUntil && !def.urgent) {
+    if (opts.onRepeat === 'skip') return undefined;
+    const pushedBack = opts.deferrals ?? 0;
+    if (pushedBack < EVENT_MAX_DEFERRALS) {
+      state.queuedEvents.push({
+        eventId: def.id,
+        day: holdUntil,
+        clientId: opts.clientId,
+        therapistId: opts.therapistId,
+        deferrals: pushedBack + 1,
+      });
+      return undefined;
+    }
+    // Out of push-backs. It lands late rather than never.
+  }
+
   if (def.once) state.firedOnce.push(def.id);
   // Scripted raises still set the cooldown, so a follow-up cannot be immediately
   // echoed by the random draw.
   state.eventCooldowns ??= {};
   state.eventCooldowns[def.id] = state.day + EVENT_COOLDOWN_DAYS[def.scope];
+  state.subjectCooldowns[key] = state.day + EVENT_COOLDOWN_DAYS[def.scope];
 
   const pending: PendingEvent = {
     instanceId: makeId(rng, 'ev'),

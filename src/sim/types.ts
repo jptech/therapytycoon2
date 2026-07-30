@@ -231,6 +231,13 @@ export interface GameEventDef {
   chapters?: ArcChapter[];
   /** Fires at most once per run. */
   once?: boolean;
+  /**
+   * This conversation cannot be saved for later. A repeat inside the subject's
+   * cooldown window is normally deferred until the window lifts; an `urgent`
+   * event lands anyway, because a crisis call that arrives a fortnight late is
+   * a worse lie than one that arrives twice.
+   */
+  urgent?: boolean;
   /** Minimum day before this can fire. */
   minDay?: number;
   choices: EventChoice[];
@@ -797,10 +804,29 @@ export interface GameState {
   year: number;
 
   pendingEvents: PendingEvent[];
-  queuedEvents: { eventId: string; day: number; clientId?: string; therapistId?: string }[];
+  queuedEvents: {
+    eventId: string;
+    day: number;
+    clientId?: string;
+    therapistId?: string;
+    /**
+     * How many times this beat has already been pushed back off a live subject
+     * window. Bounded by `EVENT_MAX_DEFERRALS`, after which it lands anyway —
+     * a beat delayed forever is a beat deleted.
+     */
+    deferrals?: number;
+  }[];
   firedOnce: string[];
   /** eventId → the first day it may be randomly drawn again. Keeps texture varied. */
   eventCooldowns: Record<string, number>;
+  /**
+   * `eventId@subject` → the first day that *person* may be handed this same
+   * conversation again. `eventCooldowns` stops the same dilemma being drawn
+   * twice in a fortnight; this stops it being drawn twice about the same client
+   * — which is the repeat a player actually feels. Subject is decided by scope
+   * (see `eventSubject`), and expired keys are swept nightly.
+   */
+  subjectCooldowns: Record<string, number>;
   flags: Record<string, number | string | boolean>;
   milestonesEarned: string[];
 

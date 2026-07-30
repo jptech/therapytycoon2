@@ -30,7 +30,15 @@ import type {
   TrainingDef,
 } from '../../sim/types';
 import { formatMoney } from '../../sim/util';
-import { useDispatch, useSim, useSimShallow, useStore, useUi } from '../../store';
+import {
+  staffSectionKey,
+  useDispatch,
+  usePanelPrefs,
+  useSim,
+  useSimShallow,
+  useStore,
+  useUi,
+} from '../../store';
 import { Portrait } from '../Portrait';
 import {
   Button,
@@ -163,17 +171,48 @@ function TierBadge({ tier }: { tier: 1 | 2 | 3 }) {
   );
 }
 
+/** The four foldable sections on a therapist's card. */
+type StaffSection = 'techniques' | 'relationships' | 'training' | 'record';
+
+/**
+ * A foldable section, remembered per therapist.
+ *
+ * A `<details>` element forgets it was open the moment the panel unmounts, and
+ * the team panel is exactly the one you close and reopen all day — so the open
+ * set is lifted into UiState. Keyed by therapist, because "I had Maya's
+ * training list open" is the thing you meant, not "I had training lists open".
+ */
 function Disclosure({
+  therapistId,
+  section,
   summary,
   count,
   children,
 }: {
+  therapistId: string;
+  section: StaffSection;
   summary: string;
   count?: ReactNode;
   children: ReactNode;
 }) {
+  const [prefs, setPrefs] = usePanelPrefs('staff');
+  const key = staffSectionKey(therapistId, section);
+  const open = prefs.openSections.includes(key);
+
   return (
-    <details className="group mt-2.5">
+    <details
+      className="group mt-2.5"
+      open={open}
+      onToggle={(e) => {
+        const nowOpen = e.currentTarget.open;
+        if (nowOpen === open) return;
+        setPrefs({
+          openSections: nowOpen
+            ? [...prefs.openSections, key]
+            : prefs.openSections.filter((k) => k !== key),
+        });
+      }}
+    >
       <summary className="list-none [&::-webkit-details-marker]:hidden cursor-pointer select-none flex items-center gap-1.5 rounded px-1 py-1 -mx-1 text-[0.68rem] font-extrabold uppercase tracking-[0.09em] text-ink-faint hover:text-ink-soft focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber">
         <span className="transition-transform duration-200 group-open:rotate-90 inline-block">▸</span>
         {summary}
@@ -627,7 +666,7 @@ function TherapistCard({
       <RelationshipList v={v} roster={roster} />
       <TrainingList v={v} />
 
-      <Disclosure summary="Their record" count={`${v.lifetimeSessions} hours`}>
+      <Disclosure therapistId={v.id} section="record" summary="Their record" count={`${v.lifetimeSessions} hours`}>
         <ul className="text-[0.74rem] text-ink-soft leading-relaxed">
           <li>
             <span className="tabular">{v.lifetimeSessions}</span> sessions held here.
@@ -781,7 +820,7 @@ function TechniqueList({ v }: { v: StaffView }) {
   }, [v.techKey, v.modality]);
 
   return (
-    <Disclosure summary="Cards in their hand" count={`${v.techniques.length}`}>
+    <Disclosure therapistId={v.id} section="techniques" summary="Cards in their hand" count={`${v.techniques.length}`}>
       {groups.length === 0 ? (
         <p className="text-[0.74rem] text-ink-faint">
           No techniques on file. Send them to a foundations course and they will come back with something to offer.
@@ -839,7 +878,7 @@ function RelationshipList({ v, roster }: { v: StaffView; roster: RosterEntry[] }
   const others = roster.filter((r) => r.id !== v.id);
 
   return (
-    <Disclosure summary="In the building" count={others.length ? `${others.length}` : undefined}>
+    <Disclosure therapistId={v.id} section="relationships" summary="In the building" count={others.length ? `${others.length}` : undefined}>
       {others.length === 0 ? (
         <p className="text-[0.74rem] text-ink-faint leading-snug">
           Nobody else on the roster yet. Hire someone and they will start having opinions about each other by Friday.
@@ -958,7 +997,7 @@ function TrainingList({ v }: { v: StaffView }) {
   const canSend = v.status === 'available';
 
   return (
-    <Disclosure summary="Send them to training" count={eligible.length ? `${eligible.length} open` : undefined}>
+    <Disclosure therapistId={v.id} section="training" summary="Send them to training" count={eligible.length ? `${eligible.length} open` : undefined}>
       <p className="text-[0.72rem] text-ink-faint leading-snug mb-2">
         The fee is only half the price. The other half is the empty Tuesday their caseload spends waiting.
         {discount < 1 && philosophyName ? (

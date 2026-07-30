@@ -3,6 +3,7 @@ import { downloadSave, importSave, listAutosaves, loadAutosave } from '../../sim
 import type { GameSettings } from '../../sim/types';
 import { adoptState, getSim, saveNow, useDispatch, useSim, useStore } from '../../store';
 import { Button, Divider, PanelShell, SectionHeading } from '../primitives';
+import { KeyList } from '../shortcuts';
 
 /**
  * Comfort, keeping, and the exit.
@@ -319,6 +320,20 @@ export function SettingsPanel() {
           />
         </div>
       </div>
+
+      {/* ── Keys ────────────────────────────────────────────────────────── */}
+      <Divider label="Keys" />
+      <SectionHeading sub="The mouse can do all of this too. These are just the shorter way.">
+        Without reaching for the mouse
+      </SectionHeading>
+
+      <div className="card-warm px-3 py-2.5">
+        <KeyList />
+      </div>
+      <p className="text-[0.71rem] text-ink-faint leading-snug mt-2">
+        The same card is under <span className="font-bold">⌨ ?</span> at the foot of the rail, or by pressing{' '}
+        <span className="font-bold">?</span> anywhere.
+      </p>
 
       {/* ── Keeping ─────────────────────────────────────────────────────── */}
       <Divider label="Keeping" />

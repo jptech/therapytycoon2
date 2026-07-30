@@ -1,8 +1,10 @@
 import { useEffect, useMemo } from 'react';
 import { capacity, clockMinutes, dailyExpenses, therapistSlots } from '../sim/engine';
 import { computeExceptions, type Exception } from '../sim/scheduler';
+import type { GameState } from '../sim/types';
 import { formatClock, formatDay, formatMoney } from '../sim/util';
 import { getSim, useDispatch, useSim, useStore, useUi, type PanelId } from '../store';
+import { anyModalUp, modalState } from './modals';
 import { Meter, RollingNumber, Tooltip } from './primitives';
 
 /**
@@ -38,6 +40,22 @@ const RAIL: RailItem[] = [
   { id: 'settings', icon: '⚙︎', label: 'Comfort', hint: 'Calm mode, motion, sound' },
 ];
 
+/**
+ * The doors actually on the rail right now, in rail order.
+ *
+ * The keyboard walks exactly this list, so `]` can never step into a door that
+ * is not there — and a door added to `RAIL` joins both the rail and the
+ * keyboard without a second edit.
+ */
+function visibleDoors(s: GameState): RailItem[] {
+  const runsItself = s.act >= 3 || s.upgrades.includes('up_auto_scheduler');
+  return RAIL.filter((item) => {
+    if (item.id === 'policies' || item.id === 'campaign') return runsItself;
+    if (item.id === 'programs') return s.practiceLevel >= 3;
+    return true;
+  });
+}
+
 /** Which door a given exception wants you to walk through. */
 const EXCEPTION_PANEL: Record<Exception['kind'], PanelId> = {
   client_at_risk: 'clients',
@@ -60,7 +78,16 @@ const EXCEPTION_ICON: Record<Exception['kind'], string> = {
 export function Hud() {
   const dispatch = useDispatch();
 
-  // Space pauses, 1/2/3 set the speed. Typing and open decisions win.
+  // Space holds the day, 1/2/3 set the speed, [ and ] walk the rail, ? explains
+  // all of it. The whole list is written down in src/ui/shortcuts.tsx — add a
+  // line there in the same change as a key here.
+  //
+  // Three things always win over a keystroke, in this order: a text field the
+  // player is typing in (the practice-name input is real), a modifier key that
+  // means the keystroke belongs to the browser, and anything on the centre of
+  // the screen waiting for a decision. Escape is deliberately absent — the
+  // panel and the modal each close themselves, which keeps "escape closes the
+  // topmost thing" true without a priority list living up here.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
@@ -69,8 +96,31 @@ export function Hud() {
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
       if (el instanceof HTMLElement && el.isContentEditable) return;
 
+      const store = useStore.getState();
       const s = getSim();
-      if (s.pendingEvents.length) return;
+      if (anyModalUp(modalState(s, store.ui))) return;
+
+      if (e.key === '?') {
+        e.preventDefault();
+        store.setUi({ keysOpen: true });
+        return;
+      }
+
+      // Step along the rail. From nowhere, ] opens the first door and [ the
+      // last, so the keyboard can always get in.
+      if (e.key === '[' || e.key === ']') {
+        const doors = visibleDoors(s).map((d) => d.id);
+        if (doors.length === 0) return;
+        e.preventDefault();
+        const step = e.key === ']' ? 1 : -1;
+        const here = store.ui.panel ? doors.indexOf(store.ui.panel) : -1;
+        const next =
+          here < 0
+            ? doors[step === 1 ? 0 : doors.length - 1]
+            : doors[(here + step + doors.length) % doors.length];
+        store.setUi({ panel: next });
+        return;
+      }
 
       if (e.key === ' ' || e.code === 'Space') {
         // A focused button owns the spacebar; don't double-fire.
@@ -168,7 +218,10 @@ function TopBar() {
       <SpeedControls />
 
       {phaseWord ? (
-        <span className="chip shrink-0 hidden xl:inline-flex" title="The clock is holding for you.">
+        // Shown from lg rather than xl: on the narrower screens where a panel
+        // has to push the day card out of the way, this chip is the only thing
+        // left saying the day is still holding.
+        <span className="chip shrink-0 hidden lg:inline-flex" title="The clock is holding for you.">
           🕯️ {phaseWord}
         </span>
       ) : null}
@@ -347,11 +400,12 @@ function SpeedControls() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function LeftRail() {
-  const act = useSim((s) => s.act);
-  const practiceLevel = useSim((s) => s.practiceLevel);
-  const hasAutoScheduler = useSim((s) => s.upgrades.includes('up_auto_scheduler'));
   const panel = useUi((u) => u.panel);
   const openPanel = useStore((s) => s.openPanel);
+  const setUi = useStore((s) => s.setUi);
+
+  // A primitive again, so the rail is not rebuilt on every tick.
+  const doorKey = useSim((s) => visibleDoors(s).map((d) => d.id).join(','));
 
   // Encoded as a primitive so the rail only re-renders when a badge changes.
   const badgeSig = useSim((s) => {
@@ -375,11 +429,10 @@ function LeftRail() {
     return out;
   }, [badgeSig]);
 
-  const visible = RAIL.filter((item) => {
-    if (item.id === 'policies' || item.id === 'campaign') return act >= 3 || hasAutoScheduler;
-    if (item.id === 'programs') return practiceLevel >= 3;
-    return true;
-  });
+  const visible = useMemo(() => {
+    const ids = new Set(doorKey.split(','));
+    return RAIL.filter((item) => ids.has(item.id));
+  }, [doorKey]);
 
   return (
     <nav
@@ -440,6 +493,39 @@ function LeftRail() {
           </Tooltip>
         );
       })}
+
+      {/* The keys live at the bottom of the rail because that is where you are
+          already looking when you wonder whether you have to reach for the
+          mouse for this. */}
+      <span
+        aria-hidden
+        className="h-px mx-1.5 my-0.5"
+        style={{ background: 'color-mix(in oklab, var(--color-ink) 14%, transparent)' }}
+      />
+      <Tooltip
+        side="right"
+        content={
+          <span className="block">
+            <b>Keys</b>
+            <span className="block text-ink-faint">
+              Every shortcut the game listens for. Step between doors with [ and ].
+            </span>
+          </span>
+        }
+      >
+        <button
+          onClick={() => setUi({ keysOpen: true })}
+          aria-label="Keys — every shortcut the game listens for"
+          title="Keys — press ?"
+          className="relative w-10 h-8 grid place-items-center rounded-[11px] text-[0.72rem] font-extrabold text-ink-faint hover:text-ink-soft transition"
+          style={{
+            background: 'color-mix(in oklab, var(--color-ink) 4%, transparent)',
+            border: '1px solid color-mix(in oklab, var(--color-ink) 9%, transparent)',
+          }}
+        >
+          <span aria-hidden>⌨ ?</span>
+        </button>
+      </Tooltip>
     </nav>
   );
 }

@@ -69,6 +69,13 @@ const MIGRATIONS: Record<number, Migration> = {
     }
     return s;
   },
+  6: (s) => {
+    // v6 → v7: per-subject cooldowns, so the same client stops being handed the
+    // same dilemma twice in a week. Starting empty is correct — the worst an
+    // old save can do is allow one repeat it would have allowed anyway.
+    s.subjectCooldowns ??= {};
+    return s;
+  },
 };
 
 export function migrate(raw: Record<string, unknown>): GameState {
@@ -87,6 +94,7 @@ export function migrate(raw: Record<string, unknown>): GameState {
   s.queuedEvents ??= [];
   s.firedOnce ??= [];
   s.eventCooldowns ??= {};
+  s.subjectCooldowns ??= {};
   s.flags ??= {};
   s.candidates ??= [];
   s.programs ??= [];

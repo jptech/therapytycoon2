@@ -1,4 +1,4 @@
-import { useMemo, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { CONDITION_LABELS, FOCUSES, SEVERITY_LABELS } from '../sim/balance';
 import { capacity, dailyExpenses } from '../sim/engine';
 import { computeExceptions, dailyRevenueForecast, type Exception } from '../sim/scheduler';
@@ -7,10 +7,11 @@ import { useDispatch, useSim, useSimShallow, useStore } from '../store';
 import type { GameState, OutcomeGrade, SessionResult } from '../sim/types';
 import { Button, Chip, Divider, EdgeRule, EmptyState, Meter, SectionHeading, Tooltip } from './primitives';
 import { Plant, Portrait } from './Portrait';
+import { dayCardDock, getPanelWidth, subscribePanelWidth, type DayCardDock } from './dock';
 
 /**
  * The two ends of a day. Both are pages in a notebook rather than dialogs — the
- * office is still there behind them, and panels slide over the top.
+ * office is still there behind them, and panels dock alongside them.
  */
 
 const GRADE_STYLE: Record<OutcomeGrade, { label: string; color: string }> = {
@@ -34,6 +35,26 @@ const EXCEPTION_ICON: Record<Exception['kind'], string> = {
 // Shared shell
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * Where this page should sit given whatever panel is open. See src/ui/dock.ts —
+ * the panel measures itself, this reads the measurement, and the arithmetic in
+ * between is pure and tested.
+ */
+function useDayCardDock(): DayCardDock {
+  const panelWidth = useSyncExternalStore(subscribePanelWidth, getPanelWidth, () => 0);
+  const [viewportWidth, setViewportWidth] = useState(() =>
+    typeof window === 'undefined' ? 0 : window.innerWidth,
+  );
+
+  useEffect(() => {
+    const onResize = () => setViewportWidth(window.innerWidth);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
+  return useMemo(() => dayCardDock(viewportWidth, panelWidth), [viewportWidth, panelWidth]);
+}
+
 function NotebookPage({
   eyebrow,
   title,
@@ -50,6 +71,7 @@ function NotebookPage({
   maxWidth?: number;
 }) {
   const calm = useSim((s) => s.settings.calmMode || s.settings.reducedMotion);
+  const dock = useDayCardDock();
   return (
     <div
       className="absolute inset-0 z-20 flex items-center justify-center px-4 pt-[68px] pb-4"
@@ -57,11 +79,28 @@ function NotebookPage({
         background: 'color-mix(in oklab, var(--color-night) 46%, transparent)',
         backdropFilter: 'blur(2.5px)',
         WebkitBackdropFilter: 'blur(2.5px)',
+        paddingLeft: `calc(1rem + ${dock.leftInset}px)`,
+        paddingRight: `calc(1rem + ${dock.rightInset}px)`,
+        transition: calm ? undefined : 'padding 0.38s var(--ease-warm)',
       }}
     >
+      {/* Too narrow to dock: the page steps back rather than being shredded into
+          a column of orphaned words. Nothing is dismissed — close the panel and
+          it is exactly where you left it. */}
       <div
         className={`paper relative w-full max-h-full flex flex-col overflow-hidden ${calm ? '' : 'tt-rise-settle'}`}
-        style={{ maxWidth }}
+        style={{
+          maxWidth,
+          opacity: dock.yielded ? 0.14 : 1,
+          // The entrance keyframes are `both`, so their final frame keeps
+          // winning over an inline opacity. Standing the animation down is what
+          // lets the page actually fade — and re-arming it means the page rises
+          // back into place when the panel closes, rather than blinking on.
+          animation: dock.yielded ? 'none' : undefined,
+          transition: calm ? undefined : 'opacity 0.3s var(--ease-warm)',
+        }}
+        aria-hidden={dock.yielded || undefined}
+        inert={dock.yielded}
       >
         {/* The lamp, hanging over the top-left of the page. */}
         <div
