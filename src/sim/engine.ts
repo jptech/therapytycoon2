@@ -522,9 +522,16 @@ export class Game {
       case 'SET_SETTING':
         (s.settings as unknown as Record<string, unknown>)[action.key] = action.value;
         break;
-      case 'ADVANCE_TUTORIAL':
+      case 'ADVANCE_TUTORIAL': {
+        const wasRunning = s.tutorialStep >= 0;
         s.tutorialStep = action.step ?? s.tutorialStep + 1;
+        // Finishing or skipping the tour hands the clock back, so nobody is left
+        // staring at a paused day wondering what they broke.
+        if (wasRunning && s.tutorialStep < 0 && s.dayPhase === 'running' && !s.pendingEvents.length) {
+          s.paused = false;
+        }
         break;
+      }
       case 'SET_PRACTICE_NAME':
         s.practiceName = action.name;
         break;
@@ -735,7 +742,10 @@ export class Game {
   private startDay(): void {
     const s = this.state;
     s.dayPhase = 'running';
-    s.paused = false;
+    // The doors open, but the clock waits while the tour is still running —
+    // nobody should be reading a coach-mark against a moving schedule. Space or
+    // the play button starts it, which is what the first tutorial step teaches.
+    s.paused = s.tutorialStep >= 0;
     s.minute = 0;
     s.lastDayResults = [];
     s.flags.clientEventsToday = 0;

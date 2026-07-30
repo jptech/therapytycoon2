@@ -41,6 +41,9 @@
 
 :root {
   --ambient: 0; /* 0 = morning, 1 = evening. Set by the office scene. */
+  /* Height of the HUD strip. Panels and the left rail both hang off this, so
+     the top bar can never overlap a panel's header. */
+  --hud-h: 74px;
   color-scheme: light;
 }
 

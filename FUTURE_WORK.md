@@ -1,159 +1,243 @@
 # Future work
 
-Written at the end of the initial build. Ordered roughly by value per unit of effort within each
-section. Items marked **⚑** are the ones I would do first.
+Written at the end of the initial build, by the person who built it. Every item says **why it
+matters**, **where to start**, and **what done looks like**, so none of them need re-deriving.
+
+Items marked **⚑** are what I would do first. Effort is rough: **S** ≈ an hour, **M** ≈ a day,
+**L** ≈ several days.
 
 ---
 
-## 1. Balance gaps the harness can see but does not yet cover
+## 1. The largest gap between plan and build
 
-**⚑ An adversarial autoplay policy.** `tools/autoplay.ts` models a *reasonable* player at varying
-competence, but even at `--skill 0` it never does the genuinely wrong thing — it will not assign a
-CBT therapist to an acute trauma case, work an exhausted therapist, or accept forty clients it
-cannot see. As a result **"poor" sessions are ~0% in every sweep**, which almost certainly
-understates how bad a real first hour can feel. Add a second policy (`--policy adversarial`) that
-deliberately mismatches, over-accepts and over-books, and re-check the low end of the grade
-distribution.
+### ⚑ Couples, family and group sessions are plumbed but unreachable — **L**
 
-**⚑ The harness smooths away pacing problems.** Both event bugs found during the build —
-repetition within days, and a modal count that would have hit ~5/day late game — were invisible
-in the statistical report and obvious in the first minute of `tools/playtest.ts`, which narrates
-a single run in order. Any new system that produces *moments* rather than *numbers* needs a
-playtest read, not just a sweep. Consider adding per-run frequency assertions to the harness
-(no event twice in N days; modals per day under a ceiling) so these fail loudly next time.
+**Why.** The concept plan lists these as the main widening of case types, and they are the
+clearest content-per-effort win left: three new session shapes reusing every existing system.
 
-**Cozy has no late-game choices.** Every Cozy run owns all 26 upgrades and runs 3 programs by day
-200. Either add a genuinely expensive top tier that even a rich practice must choose between, or
-accept it as correct for the mode and say so in the UI.
+**State today.** Fully typed (`SessionType` in `src/sim/types.ts`), certifications exist
+(`up_couples_certification`, `up_family_certification`, `up_group_room`), rates are multiplied,
+`generateClient` can produce them, and `resolveSession` already adjusts progress per type
+(group ×0.78, couples/family ×1.12). **What is missing is the referral path** — nothing ever
+passes `sessionType` to `generateClient`, so they never arrive.
 
-**Poaching and departures are untested at scale.** They are covered by unit tests but the harness
-produces ~0.05 departures per run because the bot keeps morale healthy. A "neglectful" policy
-would exercise the retention game properly.
+**Where to start.** `src/sim/engine.ts`, the referral block in `nextDay()`. Gate on the owned
+certification and give each type a small share of referrals.
 
-**The `--skill` axis is coarse.** It is one scalar applied to every decision. Splitting it into
-per-domain competence (scheduling vs. hiring vs. event choices) would show which subsystem is
-actually carrying a run.
+**Done looks like.** Buying a certification visibly changes who arrives; the schedule shows a
+two-client session; the clients panel renders `partnerHandles`; the balance harness shows the
+economics are not degenerate (group therapy at 0.55× revenue for 6–8 clients is a big swing).
 
-**No sensitivity sweep.** The harness runs a fixed constant set. A `--sweep SKILL_CAP_BY_LEVEL`
-mode that perturbs one constant across a range and reports which output curves move would turn
-retuning from craft into measurement.
+### Satellite clinics are a beat, not a system — **M**
 
-## 2. Systems that are implemented but thin
+`ev_staff_satellite_clinic` fires and reads beautifully, but choosing it currently ends there.
+The plan describes a departing veteran founding a clinic under your banner that keeps sending
+referrals and paying a small royalty — a proud legacy moment rather than a loss. Needs state on
+`GameState` (a `satellites` array), a weekly referral + cash trickle in `tickPrograms`-style
+processing, and a line on the end screen.
 
-**⚑ Couples, family and group sessions.** The types, certifications, rates and session-type
-plumbing all exist, and `generateClient` can produce them — but nothing currently *routes* them
-into the referral stream once the certification is bought. They need: a referral path gated on the
-certification, a two-client session view, and their own event set. This is the largest gap between
-the concept plan and the build.
+### Minors and parent involvement — **M**
 
-**Satellite clinics.** `ev_staff_satellite_clinic` fires and reads beautifully, but choosing it is
-currently a one-off narrative beat rather than an ongoing system. The plan describes it as a
-legacy mechanic — a departing veteran founding a clinic under your banner that keeps sending
-referrals and paying a small royalty.
+`up_child_certification` gates the School Partnership and ages are now condition-appropriate, so
+under-18 clients genuinely exist. There is no parent-involvement mechanic — sessions with a minor
+should occasionally surface a parent as a second stakeholder with their own agenda.
 
-**Minors and parent involvement.** `up_child_certification` gates the School Partnership, and the
-generator produces under-18 clients for family sessions, but there is no parent-involvement
-mechanic.
+### Insurance panels — **M**
 
-**Insurance panels.** Re-authorisation fires as an event when a client exhausts their authorised
-sessions, but there is no panel-management layer — negotiating rates, joining or leaving networks.
+Re-authorisation fires as an event when a client exhausts `authorizedSessions`, but there is no
+panel-management layer: negotiating rates, joining or leaving networks, the trade between
+reimbursement and volume. `COLLECTION_RATE` in `balance.ts` is the natural hook.
 
-**Relationship depth.** Therapists form and hold relationship scores, mentorship works, and
-friction events fire, but the scores mostly move through events rather than through *play*.
-Working adjacent slots, sharing a client, or covering a sabbatical should move them.
+### Relationship depth — **S**
 
-**The economic-cycle dial** described in the seasons section is not implemented. Quarters exist
-and the Practice Review fires; the macro dial does not.
+Therapists hold relationship scores, mentorship works, friction events fire — but the scores move
+almost entirely through events rather than through play. Working adjacent slots, sharing a client,
+or covering someone's sabbatical should all move them. `src/sim/engine.ts`, the overnight loop.
+
+### The economic-cycle dial — **S**
+
+Quarters exist and the Practice Review fires; the macro dial described in the seasons section
+does not. A single multiplier on referral volume and self-pay rates, drifting over quarters.
+
+---
+
+## 2. Balance gaps the harness cannot currently see
+
+### ⚑ An adversarial autoplay policy — **M**
+
+**Why.** `tools/autoplay.ts` models a *reasonable* player at varying competence, but even at
+`--skill 0` it never does the genuinely wrong thing — it will not assign a CBT therapist to an
+acute trauma case, work an exhausted therapist, or accept forty clients it cannot see. As a
+result **"poor" sessions are ~0% in every sweep**, which almost certainly understates how bad a
+real first hour feels. The low end of the difficulty curve is therefore unmeasured.
+
+**Where to start.** `tools/autoplay.ts`; add a `--policy adversarial` branch that deliberately
+mismatches specialisations, over-accepts against capacity, and books past the energy reserve.
+
+**Done looks like.** A sweep that produces a meaningful share of `mixed` and `poor` sessions, and
+a documented floor for how bad a run can get in each difficulty.
+
+### ⚑ The harness smooths pacing problems away — **S**
+
+**Why.** Both event bugs found during the build — the same dilemma firing three mornings running,
+and a modal rate that would have hit ~5/day late game — were invisible in the statistical report
+and obvious in the first minute of `tools/playtest.ts`. Anything that produces *moments* rather
+than *numbers* is currently unguarded.
+
+**Where to start.** `tools/balance.ts`; add per-run frequency assertions — no non-`once` event
+twice within `EVENT_COOLDOWN_DAYS`, modals per day under a ceiling, no arc beat repeating for one
+client — and fail the sweep loudly.
+
+### Cozy has no late-game choices — **S**
+
+Every Cozy run owns all 26 upgrades and runs 3 programs by day 200. Either add a genuinely
+expensive top tier that even a rich practice must choose between, or accept it as correct for the
+mode and say so in the UI. Currently it is unstated either way.
+
+### Poaching and departures are untested at scale — **S**
+
+Covered by unit tests, but the harness produces ~0.05 departures per run because the bot keeps
+morale healthy. A "neglectful" policy would exercise the retention game properly. Folds naturally
+into the adversarial policy above.
+
+### The `--skill` axis is one scalar — **S**
+
+It is applied to every decision equally. Splitting it into per-domain competence (scheduling vs.
+hiring vs. event choices) would show which subsystem actually carries a run.
+
+### No sensitivity sweep — **M**
+
+The harness runs a fixed constant set. A `--sweep SKILL_CAP_BY_LEVEL` mode that perturbs one
+constant across a range and reports which output curves move would turn retuning from craft into
+measurement.
+
+---
 
 ## 3. Content
 
-The current set is complete enough to play a full run without heavy repetition, but the concept
-plan's targets are higher in two places:
-
-| | Built | Plan target |
-| --- | --- | --- |
-| Techniques | 48 | ~40 ✓ |
-| Events | 62 | ~60 ✓ |
-| Arc beats | 42 | ~30 ✓ |
-| Traits | 22 | ~20 ✓ |
-| Testimonials | 45 | — |
-
-What is actually thin:
+Counts meet or exceed the plan's targets: 48 techniques, 64 events, 42 arc beats, 22 traits, 26
+upgrades, 24 trainings, 30 milestones, 48 testimonials. What is actually thin:
 
 - **Condition coverage is uneven.** `psychosis` and `behavioral` have the fewest arc beats and
-  technique affinities, and they are the two that appear latest, so a long run notices.
-- **Philosophy-exclusive content.** Each philosophy has 2–3 signature techniques but no exclusive
-  *events*, so the three identities feel more similar in play than the plan intends.
-- **Program events.** One per program. Three or four each would let a program's flavour build.
-- **Late-game events.** Most `once: true` beats fire before day 60. Days 120–200 are mechanically
-  rich but narratively quiet.
+  technique affinities, and they appear latest in a run, so a long playthrough notices. **S**
+- **Philosophy-exclusive content is techniques only.** Each philosophy has 2–3 signature
+  techniques but no exclusive *events*, so the three identities feel more similar in play than
+  the plan intends. Roughly 6 events each would fix it. **M**
+- **One event per program.** Three or four each would let a program's flavour accumulate over the
+  many weeks it runs. **M**
+- **Late-game events are quiet.** Most `once: true` beats fire before day 60. Days 120–200 are
+  mechanically rich and narratively sparse. **M**
+- **Testimonials repeat on long runs.** 48 quotes against ~150 cures. **S**
+
+---
 
 ## 4. UI and presentation
 
-**⚑ The office scene has no interaction.** It renders the practice living its day, but you cannot
-click a room to open that therapist's card, or a waiting client to see who they are. That is the
-cheapest large win available — the scene is already the home screen, it just is not a control
-surface yet.
+### ⚑ The office scene is not a control surface — **M**
 
-**Panels and the morning brief overlap.** Opening a panel while the day-start or day-end card is
-up leaves the two competing for the same space. The panel should either dismiss the card or dock
-beside it.
+It renders the practice living its day, but you cannot click a room to open that therapist's
+card, or a waiting client to see who they are. It is already the home screen; making it
+interactive is the cheapest large win available. Start in `src/scene/OfficeScene.tsx` — the world
+already keeps a `roomByTherapist` map and per-actor positions, so hit-testing is mostly wiring.
 
-**Panel state is not remembered.** Sort orders, filters and the expanded client all reset when a
-panel closes.
+### Panels and the day cards overlap — **S**
 
-**The session overlay overflows a 720px viewport.** It scrolls, but the third and fourth
-technique cards sit below the fold on a short screen, which undersells the choice. A two-column
-grid that fits four cards in 640px would be better.
+Opening a panel while the morning brief or day-end card is up leaves the two competing for the
+same space. The panel should either dismiss the card or dock beside it. `src/App.tsx`.
 
-**No keyboard navigation between panels.** Space and 1/2/3 drive the clock, and the technique
-cards take 1–4, but there is no way to move between panels without the mouse.
+### The session overlay overflows a short viewport — **S**
 
-**Mobile is unhandled.** The layout assumes a desktop viewport. Panels are already
-`max-width`-constrained, so a small-screen pass is plausible but has not been attempted.
+It scrolls, but on a 720px screen the third and fourth technique cards sit below the fold, which
+undersells the most important choice in the game. A two-column grid fitting four cards in ~640px
+would be better. `src/ui/SessionOverlay.tsx`.
 
-**Localisation.** All copy is inline English. Extracting strings would be a large mechanical change
-and is much cheaper now than after another content pass.
+### Panel state is not remembered — **S**
 
-**The photo wall does not persist across runs.** Legacy points carry over; the alumni do not. A
-permanent wall spanning every run would be a strong meta hook.
+Sort orders, filters and the expanded client all reset when a panel closes. Lift into
+`UiState` in `src/store.ts`.
+
+### No keyboard navigation between panels — **S**
+
+Space and 1/2/3 drive the clock and the technique cards take 1–4, but there is no way to move
+between panels without a mouse.
+
+### Mobile is unhandled — **L**
+
+The layout assumes a desktop viewport. Panels are already `max-width`-constrained so a
+small-screen pass is plausible, but it has not been attempted and the schedule grid in particular
+will need rethinking.
+
+### Localisation — **L**
+
+All copy is inline English. Extracting strings is a large mechanical change and is much cheaper
+now than after another content pass.
+
+### The photo wall does not persist across runs — **M**
+
+Legacy points carry over; the alumni do not. A permanent wall spanning every run would be a
+strong meta hook and is nearly free — `saveLegacy` already exists in `src/sim/save.ts`.
+
+---
 
 ## 5. Technical
 
-**No end-to-end tests.** The sim is well covered; the React layer is not tested at all. A
-Playwright pass driving a full day — book, run, choose a technique, read the reflect card, close
-the day — would catch integration regressions that typechecking cannot.
+### No end-to-end tests — **M**
 
-**Bundle size is unmeasured.** Pixi is the bulk of it and is already lazy-loaded, but nothing
-tracks the number.
+The sim has 182 tests; the React layer has none. A Playwright pass driving one full day — book,
+run, choose a technique, read the reflect card, close the day — would catch integration
+regressions that typechecking cannot. Two of the six bugs found by hand-playing were of exactly
+this kind.
 
-**No replay tooling.** The sim is deterministic and actions are serialisable, so recording an
-action log and replaying it would be nearly free — and would make bug reports reproducible.
+### No replay tooling — **S**
 
-**Save migrations are untested against real old saves.** `migrate()` has unit coverage for
-synthetic v1-shaped objects, but no fixture files captured from actual earlier builds.
+The sim is deterministic and `GameAction` is serialisable, so recording an action log and
+replaying it is nearly free — and would make any bug report exactly reproducible. This is the
+highest-leverage debugging investment available.
 
-**Accessibility beyond the basics.** Controls are real buttons with labels and visible focus, and
-reduced-motion and calm mode are respected, but there has been no screen-reader pass and no
-contrast audit of the amber-on-cream combinations.
+### Save migrations are untested against real old saves — **S**
 
-**The `state.flags` write-through pattern.** Three UI surfaces mutate a flag directly and dispatch
-a no-op to force a publish, because those flags have no dedicated action. Each site is commented.
-If a fourth appears, add real actions instead.
+`migrate()` has coverage for synthetic v1-shaped objects, but there are no fixture files captured
+from actual earlier builds. Capture one per version from here on.
+
+### Bundle size is unmeasured — **S**
+
+The main chunk is ~755 kB (229 kB gzipped) and Vite warns about it. Pixi is already lazy-loaded
+into its own chunks; the content tree is the next largest contributor and could be split by act.
+
+### Accessibility beyond the basics — **M**
+
+Controls are real buttons with labels and visible focus, reduced-motion and calm mode are
+respected, and the office scene is `aria-hidden` decoration. There has been no screen-reader pass
+and no contrast audit of the amber-on-cream combinations.
+
+### The `state.flags` write-through pattern — **S**
+
+Three UI surfaces mutate a flag directly and dispatch a no-op to force a publish, because those
+transient flags have no dedicated action (`showQuarterReview`, `autoSchedule`, `autoTechnique`).
+Each site is commented. If a fourth appears, add real actions instead.
+
+### Log entry ids are not deterministic — **S**
+
+They come from a process-global counter rather than the rng, so two same-seed games in one
+process produce identical state *except* for log ids. Harmless today; it would break a
+whole-state diff. Noted by the test suite.
+
+---
 
 ## 6. Open design questions
 
-These were flagged as good first discussions in the concept plan and remain open:
+Flagged as good first discussions in the concept plan, and still open:
 
-- **Should therapist friction ever produce a resignation the player cannot prevent?** Currently it
-  cannot — every departure has a warning and a counter-offer. That is warmer, but it means staff
-  retention has no true failure state.
-- **Should the player's own therapist retire into a director role in Act 3?** They currently stay
-  playable forever, which is simple but slightly undercuts the act structure.
-- **Should philosophies be respec-able?** They are permanent per run today.
-- **How far can the client-arc writing scale** before it needs a real content pipeline rather than
-  hand-authored TypeScript?
-- **3× speed with technique cards.** Decision events always pause, which is right, but at 4× a
+- **Should therapist friction ever produce a resignation the player cannot prevent?** Currently
+  it cannot — every departure has a warning and a counter-offer. That is warmer, but it means
+  staff retention has no true failure state, and the poaching arc may read as toothless.
+- **Should the player's own therapist retire into a director role in Act 3?** They stay playable
+  forever today, which is simple but slightly undercuts the act structure the whole design rests
+  on.
+- **Should philosophies be respec-able?** Permanent per run today.
+- **How far can hand-authored client-arc writing scale** before it needs a real content pipeline
+  rather than TypeScript literals?
+- **4× speed with technique cards.** Decision events always pause, which is right, but at 4× a
   busy day becomes a sequence of modals. A "let the team handle routine sessions" threshold —
-  auto-resolving only high-confidence picks — might be better than the current all-or-nothing
-  `autoTechnique` toggle.
+  auto-resolving only high-confidence picks — would probably be better than the current
+  all-or-nothing `autoTechnique` toggle.

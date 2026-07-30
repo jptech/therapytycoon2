@@ -383,7 +383,7 @@ function LeftRail() {
   return (
     <nav
       aria-label="Practice panels"
-      className="absolute left-3 top-[74px] z-40 flex flex-col gap-1.5 p-1.5 rounded-[18px]"
+      className="absolute left-3 top-[var(--hud-h)] z-40 flex flex-col gap-1.5 p-1.5 rounded-[18px]"
       style={{
         background: 'color-mix(in oklab, var(--color-paper) 84%, transparent)',
         backdropFilter: 'blur(10px)',
@@ -459,7 +459,7 @@ function ExceptionStrip() {
   return (
     <section
       aria-label="Things the policies could not settle"
-      className="absolute left-[70px] top-[74px] z-30 w-[min(330px,calc(100%-6rem))] flex flex-col gap-1"
+      className="absolute left-[70px] top-[var(--hud-h)] z-30 w-[min(330px,calc(100%-6rem))] flex flex-col gap-1"
     >
       <div
         className="text-[0.58rem] font-extrabold uppercase tracking-[0.13em] text-paper pl-1"

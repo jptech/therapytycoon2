@@ -62,6 +62,7 @@ Every session has three beats:
 
 | Document | What's in it |
 | --- | --- |
+| [CLAUDE.md](CLAUDE.md) | Start here if you're working on the code |
 | [docs/DESIGN.md](docs/DESIGN.md) | Every system, and which v1 failure it answers |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Code layout, the sim/UI contract, how to extend |
 | [docs/BALANCE.md](docs/BALANCE.md) | The harness, the current curves, how to retune |
@@ -77,13 +78,22 @@ bun run build        # production build
 bun run test         # vitest suite (sim formulas, save migrations, content integrity)
 bun run typecheck    # tsc --noEmit
 bun run balance      # headless balance harness — see docs/BALANCE.md
+bun run playtest     # narrate a single run: the beats, events and goodbyes in order
 ```
 
 The balance harness is the discipline that keeps this from re-inheriting v1's invisible
-late-game rot:
+late-game rot — it runs thousands of headless 200-day playthroughs and reports the curves:
 
 ```bash
 bun run balance -- --runs 60 --days 200 --difficulty cozy,standard,challenge --csv balance-out
+```
+
+Its companion answers the question statistics can't. Where the harness says *are the curves
+right across a thousand runs*, the playtest says *what does one run actually feel like* —
+printing the story beats, the dilemmas chosen and the goodbyes in order:
+
+```bash
+bun run playtest -- --seed 7 --days 90 --difficulty challenge
 ```
 
 ## Stack

@@ -359,7 +359,7 @@ export function PanelShell({
 
   return (
     <aside
-      className={`panel-enter absolute right-3 top-3 bottom-3 z-30 flex flex-col paper overflow-hidden ${
+      className={`panel-enter absolute right-3 bottom-3 top-[calc(var(--hud-h)+0.5rem)] z-30 flex flex-col paper overflow-hidden ${
         wide ? 'w-[min(760px,calc(100%-1.5rem))]' : 'w-[min(460px,calc(100%-1.5rem))]'
       }`}
     >
