@@ -39,11 +39,15 @@ One rule earned its own guard on the way out as well as in: **a room that drops 
 chair, or curing one half of a pair, used to leave a circle of one — a full-cost hour billing
 0.55× and moving at the group's slower pace, with nothing on screen to say so.
 
+The office scene seats the room too. `office.ts` reads the guest list through `sessionMembers()`,
+and a circle is drawn as two shallow arcs on a twelve-unit grid that already lands on the room's
+two armchairs — so a group is the 1:1 hour with plain wooden chairs carried in, not a different
+room. The far arc sits six units higher, a shade smaller, and carries a z-bias, because actors
+sort on x alone and the two arcs interleave. The chairs live in their own Graphics layers either
+side of the room's furniture and are redrawn only when the set of circles changes.
+
 **Still open:**
 
-- **The office scene seats one actor per session.** `office.ts` maps `s.clientId` → session, so a
-  room of five shows one chair. It is `aria-hidden` decoration and the game plays fine without it,
-  but it currently draws a lie.
 - **No group-specific content.** No arc beats about being in a room with other people, no events
   about a member who dominates the circle or one who stops coming, and the technique pool is not
   aware that a technique is being chosen for six people at once. This is the cheapest remaining

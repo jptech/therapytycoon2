@@ -377,6 +377,43 @@ that mattered, and it is not one the harness could have made.
 
 ---
 
+## Phase 12 — Six people, one chair
+
+The room shipped in the sim and in the panels and never reached the office. `office.ts` indexed
+today's sessions on `s.clientId`, which is only the seat a session is *filed under*, so every
+member past the first was invisible to the scene: they never walked in, never sat down, and a room
+of five drew as one person in an armchair. The rule CLAUDE.md had just gained — *any new
+`schedule.filter(x => x.clientId === ...)` is a bug waiting for the first group booking* — turned
+out to be describing code that was already written.
+
+**The interesting part was where to put six people in 186 units.** A therapy room is that wide and
+already has a therapist's armchair at 66, a side table at ~104, a client's armchair at 138 and a
+floor lamp at 168. A single row of six would have been a queue at a bus stop. Two shallow arcs read
+as a circle instead — a near row on the boards and a far row six units higher, a shade smaller,
+interleaved in x so that the z-order carries the depth. Actors sort on x alone, so the far arc also
+takes a fixed z-bias; without it a person at the back of the circle can draw in front of the person
+beside them.
+
+The ring is a twelve-unit half-step grid, chosen because it lands exactly on the two armchairs the
+room already owns. So a group is the 1:1 hour with chairs pulled up rather than a different room,
+the therapist sits *in* the circle at the same spacing as everyone else, and the fill order is such
+that a room of four is a room of three with one more chair in it. It closes at 150, which keeps the
+lamp and the corner plant outside the circle, and centres on 108 — the little table with the
+tissues on it, which is where the Group Room's own blurb says they should be.
+
+**Two chair layers, not one.** The first pass drew the borrowed chairs in a single Graphics after
+the room's furniture, and the far chairs then painted over the armchair and the side table — a
+chair at the back reading as nearer than one at the front. They are two layers now, one either side
+of `propsG`. The chairs are the plain wooden ones from the waiting room in mismatched dye lots,
+because five matching armchairs would read as a set the practice does not own.
+
+**And a thing nobody asked for that turned out to matter.** Six members leave the waiting room on
+the same intent pass at the same speed, so they crossed the building as a single blob and popped
+apart on arrival. A ±10% per-actor walking pace — seeded off their id, so it is stable — is the
+difference between a group arriving and a group marching.
+
+---
+
 ## What I would tell the next person
 
 **The harness is the product.** Every serious balance problem in this build was found by reading a

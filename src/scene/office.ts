@@ -13,6 +13,9 @@
 
 import { Application, Container, Graphics, Sprite, Text, TilingSprite } from 'pixi.js';
 import { DAY_LENGTH_MINUTES, SLOT_MINUTES } from '../sim/balance';
+// A session is a room, not a chair: `clientId` is only the seat it is filed
+// under, so the scene reads the guest list through the same helper the sim does.
+import { sessionMembers } from '../sim/session';
 import type { GameState, PortraitSeed, ScheduledSession, SessionResult } from '../sim/types';
 // Read-only authored content: which school a therapist practises from decides
 // which prop stands in their room.
@@ -105,6 +108,69 @@ const CLIMB_SPEED = 96;
 const ARRIVE_LEAD = 12;
 const MAX_VISIBLE_ROOMS = 6;
 
+// ─────────────────────────────────────────────────────────────────────────────
+// The circle
+//
+// A therapy room is 186 units wide and has to hold a therapist and up to six
+// clients without turning into a queue. The answer is two shallow rows a half
+// step apart — a near arc on the boards and a far arc six units higher — which
+// is the same trick the room's furniture already uses to have any depth at all.
+//
+// Both arcs are pinned to the chairs the room already owns. The whole ring is a
+// twelve-unit half-step grid that happens to land on 66 and 138 — the two
+// armchairs the room has always had — so a circle is the 1:1 hour with chairs
+// pulled up rather than a different room, and the therapist sits in it at the
+// same spacing as everybody else instead of across a gap from them.
+//
+// It closes at 150, which keeps the floor lamp and the corner plant out of the
+// circle, and it centres on 108: the little side table with the tissues on it.
+// Fill order is deliberate — a room of four is a room of three with one more
+// chair in it, never a fresh arrangement, it always alternates arcs so there is
+// no hole in the ring, and the seat that ends up sitting on the tissue table is
+// the last one taken.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const GROUP_RING: { x: number; far: boolean }[] = [
+  { x: 138, far: false }, // the room's own armchair — always the first seat
+  { x: 126, far: true },
+  { x: 114, far: false },
+  { x: 150, far: true },
+  { x: 102, far: true },
+  { x: 90, far: false }, // clear of the therapist's armchair, which ends at 79
+];
+
+/** How much higher on the boards the far arc sits. */
+const GROUP_FAR_RISE = 6;
+/**
+ * Actors sort on x alone, so the far arc needs a nudge to stay behind the near
+ * one. Only the half-step neighbours ever overlap, so this need only exceed the
+ * grid's twelve — 30 is comfortable margin and still lands well inside the room,
+ * so nobody leaks behind the wall into next door.
+ */
+const GROUP_FAR_DEPTH = -30;
+/** The far arc is fractionally smaller. Six percent is all it takes to recede. */
+const GROUP_FAR_SCALE = 0.94;
+/** Everyone in the circle turns toward its middle — halfway from 66 to 150. */
+const GROUP_CIRCLE_CX = 108;
+/** A client leans in this far in a 1:1 hour; the therapist a good deal less. */
+const CLIENT_LEAN = 0.058;
+/**
+ * Five people leaning in at exactly the same angle read as five copies of one
+ * person, so the circle varies it off each client's id — stable for the run,
+ * and never quite upright.
+ */
+const GROUP_LEAN_SPREAD = 0.045;
+/**
+ * The extra chairs are carried in from the waiting room and the landing, so
+ * they are the plain wooden ones and they do not match. Deliberate: five
+ * matching armchairs would read as a set the practice does not own.
+ */
+const BORROWED_SEATS = [
+  mix(PAL.sage, PAL.paper, 0.4),
+  mix(PAL.plum, PAL.paperDeep, 0.42),
+  mix(PAL.amber, PAL.paperDeep, 0.52),
+];
+
 const clamp01 = (v: number) => (v < 0 ? 0 : v > 1 ? 1 : v);
 const clamp = (v: number, lo: number, hi: number) => (v < lo ? lo : v > hi ? hi : v);
 
@@ -187,6 +253,10 @@ interface Seat {
   facing: 1 | -1;
   sit: boolean;
   room: number;
+  /** Added to the occupant's z so a far arc stays behind a near one. */
+  depth?: number;
+  /** Foreshortening for the far side of a circle. Undefined means full size. */
+  scale?: number;
 }
 
 interface Room {
@@ -246,6 +316,14 @@ interface Actor {
   ttl: number;
   alpha: number;
   alphaTarget: number;
+  /** Eased toward the seat's foreshortening, so people recede as they cross. */
+  scale: number;
+  /**
+   * Their own walking pace, ±10%. One person's is invisible; six people's is the
+   * difference between a group arriving and a group marching, because they all
+   * leave the waiting room on the same intent pass.
+   */
+  pace: number;
 }
 
 /**
@@ -350,7 +428,14 @@ export class OfficeWorld {
   private world = new Container();
   private shellG = new Graphics();
   private panesG = new Graphics();
+  /**
+   * The chairs a group circle borrows — the only furniture that comes and goes.
+   * Two layers, because the circle straddles the room's own furniture: the far
+   * arc belongs behind the armchairs and the side table, the near arc in front.
+   */
+  private groupFarG = new Graphics();
   private propsG = new Graphics();
+  private groupNearG = new Graphics();
   private plantLayer = new Container();
   private doorLayer = new Container();
   private charLayer = new Container();
@@ -399,6 +484,9 @@ export class OfficeWorld {
   private motes: Mote[] = [];
   private steamAccum = 0;
 
+  /** Which rooms currently hold a circle, and how big — `roomIndex:count`. */
+  private groupSig = '';
+
   private time = 0;
   private intentTimer = 0;
   /** Smoothed 0..1 "how far through the day are we" used for all ambience. */
@@ -418,7 +506,9 @@ export class OfficeWorld {
     this.world.addChild(
       this.shellG,
       this.panesG,
+      this.groupFarG,
       this.propsG,
+      this.groupNearG,
       this.plantLayer,
       this.doorLayer,
       this.charLayer,
@@ -751,11 +841,18 @@ export class OfficeWorld {
     this.drawSkyline();
     this.drawStars();
 
+    // Borrowed chairs are drawn in room-local coordinates that have just moved;
+    // clearing the signature makes the next intent pass re-place them.
+    this.groupFarG.clear();
+    this.groupNearG.clear();
+    this.groupSig = '';
+
     // Actors keep their identity but lose their (now stale) seats.
     this.occupied.clear();
     for (const a of this.actors.values()) {
       a.seat = null;
       a.wantSeat = null;
+      a.scale = 1;
       a.path = [];
       a.floor = Math.min(a.floor, floors - 1);
       const ground = this.rooms.find((r) => r.floor === a.floor) ?? this.rooms[0];
@@ -816,6 +913,71 @@ export class OfficeWorld {
           break;
       }
       room.seats = seats;
+    }
+  }
+
+  // ── The circle ────────────────────────────────────────────────────────────
+
+  /**
+   * The ring seat for member `index` of a group in `room`.
+   *
+   * Built on demand rather than kept on the room, because the same room runs a
+   * 1:1 hour tomorrow and a permanent six-chair ring would be a lie most of the
+   * week. The id is deterministic, which is all `occupied` and `sendTo` need —
+   * they compare seats by id, never by identity.
+   */
+  private groupSeat(room: Room, index: number): Seat | null {
+    const r = GROUP_RING[index];
+    if (!r) return null;
+    return {
+      id: `${room.index}:circle:${index}`,
+      role: 'client',
+      x: room.x + r.x,
+      y: room.floorY - (r.far ? GROUP_FAR_RISE : 0),
+      floor: room.floor,
+      facing: r.x < GROUP_CIRCLE_CX ? 1 : -1,
+      sit: true,
+      room: room.index,
+      depth: r.far ? GROUP_FAR_DEPTH : 0,
+      scale: r.far ? GROUP_FAR_SCALE : 1,
+    };
+  }
+
+  /**
+   * Put out (or take away) the borrowed chairs.
+   *
+   * `circles` maps a room index to how many clients are sitting in it. Redrawn
+   * only when that set changes — the room's own furniture is drawn once at
+   * layout time and these have to behave the same way, or a six-person circle
+   * would re-tessellate five chairs sixty times a second for an hour.
+   */
+  private syncGroupChairs(circles: Map<number, number>): void {
+    const sig = [...circles].map(([r, n]) => `${r}:${n}`).sort().join('|');
+    if (sig === this.groupSig) return;
+    this.groupSig = sig;
+
+    this.groupFarG.clear();
+    this.groupNearG.clear();
+    for (const [roomIndex, count] of circles) {
+      const room = this.rooms[roomIndex];
+      if (!room || room.kind !== 'therapy') continue;
+      for (let i = 1; i < Math.min(count, GROUP_RING.length); i++) {
+        const r = GROUP_RING[i];
+        const g = r.far ? this.groupFarG : this.groupNearG;
+        const x = room.x + r.x;
+        const y = room.floorY - (r.far ? GROUP_FAR_RISE : 0);
+        const dir: 1 | -1 = r.x < GROUP_CIRCLE_CX ? 1 : -1;
+        // Same chair, different dye lots — as true of this building as any other.
+        const fabric = BORROWED_SEATS[Math.floor(hash01(x, room.index, 23) * BORROWED_SEATS.length)];
+        const s = r.far ? GROUP_FAR_SCALE : 1;
+        // Innermost of the three transforms `withProp` is composing, so it
+        // scales the chair about its own feet before the tilt and the placing.
+        withProp(g, x, y, 23 + i, () => {
+          g.scaleTransform(s, s);
+          drawSideChair(g, dir, fabric);
+          g.scaleTransform(1 / s, 1 / s);
+        });
+      }
     }
   }
 
@@ -1705,6 +1867,8 @@ export class OfficeWorld {
       ttl: -1,
       alpha: 0,
       alphaTarget: 1,
+      scale: 1,
+      pace: 1 + wobble(idSeed(refId), 0, 91, 0.1),
     };
     this.actors.set(key, a);
     return a;
@@ -1805,12 +1969,24 @@ export class OfficeWorld {
     const seen = new Set<string>();
 
     // Sessions indexed by therapist and by client — cheap, and this runs at 4 Hz.
+    // Indexing on `s.clientId` alone was the bug that drew a room of five as one
+    // chair: every other member of a group was invisible to the scene, so they
+    // never walked in and never sat down.
     const activeByTherapist = new Map<string, ScheduledSession>();
     const byClient = new Map<string, ScheduledSession>();
+    /** Rooms with a circle in them right now → how many chairs it needs. */
+    const circles = new Map<number, number>();
     for (const s of state.schedule) {
       if (s.status === 'active') activeByTherapist.set(s.therapistId, s);
-      if (s.status === 'active' || s.status === 'scheduled') byClient.set(s.clientId, s);
+      if (s.status !== 'active' && s.status !== 'scheduled') continue;
+      const members = sessionMembers(s);
+      for (const id of members) byClient.set(id, s);
+      if (s.status === 'active' && members.length > 1) {
+        const room = this.roomByTherapist.get(s.therapistId);
+        if (room) circles.set(room.index, Math.min(members.length, GROUP_RING.length));
+      }
     }
+    this.syncGroupChairs(circles);
 
     // ── Therapists ──────────────────────────────────────────────────────────
     for (const t of state.therapists) {
@@ -1866,10 +2042,21 @@ export class OfficeWorld {
         if (a.leaving) continue;
         a.ttl = -1;
         a.alphaTarget = 1;
-        const seat = room?.seats.find((s) => s.role === 'client');
+        // A room has exactly one 'client' seat, built with the furniture. Anyone
+        // beyond the first sits on the ring, which only exists while they do.
+        const members = sessionMembers(sess);
+        const seat = !room
+          ? null
+          : members.length > 1
+            ? this.groupSeat(room, members.indexOf(c.id))
+            : (room.seats.find((s) => s.role === 'client') ?? null);
         if (seat) this.sendTo(a, seat);
-        // Leaning in, a little more than the therapist does.
-        a.lean = 0.058;
+        // Leaning in, a little more than the therapist does — and in a circle,
+        // never by quite the same amount as the person next to them.
+        a.lean =
+          members.length > 1
+            ? CLIENT_LEAN + wobble(idSeed(c.id), 0, 89, GROUP_LEAN_SPREAD)
+            : CLIENT_LEAN;
       } else if (running && state.minute >= startMin - ARRIVE_LEAD) {
         seen.add(key);
         const a = this.ensureActor(key, 'client', c.id, c.portrait, this.doorPoint());
@@ -1916,7 +2103,7 @@ export class OfficeWorld {
         if (n.floor !== a.floor) {
           // Stair hop.
           const dy = n.y - a.y;
-          const step = CLIMB_SPEED * dt;
+          const step = CLIMB_SPEED * a.pace * dt;
           a.x += (n.x - a.x) * Math.min(1, dt * 5);
           if (Math.abs(dy) <= step) {
             a.y = n.y;
@@ -1928,7 +2115,7 @@ export class OfficeWorld {
           mode = 'walk';
         } else {
           const dx = n.x - a.x;
-          const step = WALK_SPEED * dt;
+          const step = WALK_SPEED * a.pace * dt;
           a.y += (n.y - a.y) * Math.min(1, dt * 6);
           if (Math.abs(dx) <= step) {
             a.x = n.x;
@@ -1945,6 +2132,9 @@ export class OfficeWorld {
               } else if (a.wantSeat) {
                 a.seat = a.wantSeat;
                 a.facing = a.wantSeat.facing;
+                // The walk eases y toward the seat rather than stepping it, so
+                // a seat off the floor line needs settling exactly.
+                a.y = a.wantSeat.y;
                 mode = a.wantSeat.sit ? 'sit' : 'idle';
               }
             }
@@ -1970,16 +2160,25 @@ export class OfficeWorld {
       }
 
       a.mode = mode;
+      // Where they are headed decides how big they are, not where they are:
+      // somebody crossing to the far side of a circle should recede on the way
+      // rather than snap the moment they sit down.
+      const dest = a.wantSeat ?? a.seat;
+      const wantScale = dest?.scale ?? 1;
+      a.scale += (wantScale - a.scale) * Math.min(1, dt * 5);
       // Feet sit on the floorboards; the chair geometry is drawn behind them.
       a.rig.view.position.set(a.x, a.y);
+      a.rig.view.scale.set(a.scale);
       setPersonPose(a.rig, mode === 'sit' ? 'sit' : 'stand', a.sleepy && mode !== 'walk');
       setPersonFacing(a.rig, a.facing);
       // A lean only reads when someone is settled; walking with one looks drunk.
       a.rig.lean = mode === 'sit' ? a.lean : 0;
       setPersonProp(a.rig, this.propFor(a, mode));
       animatePerson(a.rig, dt, mode, reduced);
-      // Upper floors draw over lower ones; within a floor, right over left.
-      a.rig.view.zIndex = a.floor * 10000 + a.x;
+      // Upper floors draw over lower ones; within a floor, right over left —
+      // plus a seat's own bias, which is what holds the far arc of a circle
+      // behind the near one when the two interleave in x.
+      a.rig.view.zIndex = a.floor * 10000 + a.x + (dest?.depth ?? 0);
     }
   }
 
@@ -2221,6 +2420,17 @@ function withProp(g: Graphics, x: number, y: number, salt: number, draw: () => v
 /** A contact shadow for furniture drawn inline rather than through a helper. */
 function drawContactShadowAt(g: Graphics, x: number, y: number, w: number, h: number): void {
   withOffset(g, x, y, () => drawContactShadow(g, w, h));
+}
+
+/**
+ * A stable number from an entity id, so `wobble` can key off one. Client ids are
+ * minted from `state.idSeq`, which makes this steady for the whole run — the
+ * same person leans in by the same amount every hour of every week.
+ */
+function idSeed(id: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < id.length; i++) h = Math.imul(h ^ id.charCodeAt(i), 16777619);
+  return (h >>> 0) % 4093;
 }
 
 /** `#RRGGBB` from the content pack → a packed Pixi colour. */

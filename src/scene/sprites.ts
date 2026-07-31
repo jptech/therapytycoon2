@@ -872,15 +872,19 @@ export function drawArmchair(g: Graphics, dir: 1 | -1, fabric: number): void {
   g.rect(8, -2, 3, 0.7).fill({ color: PAL.wood, alpha: 0.7 });
 }
 
-/** A plain wooden waiting-room chair. */
-export function drawSideChair(g: Graphics, dir: 1 | -1): void {
+/**
+ * A plain wooden waiting-room chair. `fabric` is the seat pad: the practice owns
+ * a dozen of these and they have never all matched, which is exactly what you
+ * want when five of them get carried into one room for a circle.
+ */
+export function drawSideChair(g: Graphics, dir: 1 | -1, fabric = mix(PAL.sage, PAL.paper, 0.4)): void {
   const backX = dir === 1 ? -8.4 : 5.6;
   drawContactShadow(g, 10, 2.6);
   g.roundRect(backX, -27, 2.8, 16, 1.4).fill(PAL.woodDeep);
   g.rect(backX, -27, 0.9, 16).fill({ color: PAL.wood, alpha: 0.55 });
   g.roundRect(backX - 0.6, -26.5, 4, 2.6, 1.2).fill(PAL.woodDeep);
   g.roundRect(-9, -12.6, 18, 3.2, 1.5).fill(PAL.wood);
-  g.roundRect(-8, -14.4, 16, 3, 1.4).fill(mix(PAL.sage, PAL.paper, 0.4));
+  g.roundRect(-8, -14.4, 16, 3, 1.4).fill(fabric);
   g.roundRect(-7.4, -14.2, 14.8, 1.1, 0.55).fill({ color: 0xffffff, alpha: 0.3 });
   g.ellipse(dir * 1, -12.4, 5.4, 1.3).fill({ color: PAL.ink, alpha: 0.1 });
   g.roundRect(-8, -9.6, 2.4, 9.6, 1.1).fill(PAL.woodDeep);
