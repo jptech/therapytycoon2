@@ -71,8 +71,23 @@ export function watchForTrouble(page: Page): Failures {
   return { messages };
 }
 
-/** Open the game at a fixed seed with an empty profile. Call before anything else. */
+/**
+ * Open the game at a fixed seed with an empty profile. Call before anything else.
+ *
+ * The PixiJS office does not load here, and that is deliberate rather than a
+ * compromise. It is `aria-hidden` decoration that the app already loads behind a
+ * `.catch()` which degrades to nothing — "the game must stay playable without
+ * it" is an architectural rule, so blocking the module exercises that path
+ * rather than avoiding one. What it buys is a suite that behaves the same
+ * everywhere: on a CI runner there is no GPU, so the scene's animation loop
+ * falls back to software rasterisation, pegs the one core it is given, and
+ * starves the page — far enough that `page.evaluate` itself timed out and every
+ * spec failed at a two-minute budget for want of a canvas nobody was asserting
+ * on. These tests are about what the DOM does; the office is verified by
+ * looking at it.
+ */
 export async function openGame(page: Page, seed = 0x7a11ed): Promise<void> {
+  await page.route('**/scene/OfficeScene*', (route) => route.abort());
   await page.addInitScript({ content: seedScript(seed) });
   await page.goto('/');
   // The dev handle is installed by src/store.ts at module scope, so its presence

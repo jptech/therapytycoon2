@@ -67,6 +67,22 @@ differences are deliberate:
   suite.
 - *Port 5299, not 5199.* It never fights the dev server a person already has open.
 
+**The office scene is blocked, on purpose.** `openGame()` aborts the request for
+`scene/OfficeScene`, so every spec runs against the app's own no-WebGL path — the one the lazy
+import's `.catch()` already provides, because "the game stays playable without the scene" is an
+architectural rule rather than an aspiration. This is not only about avoiding the canvas: a CI
+runner has no GPU, so PixiJS falls back to software rasterisation, its animation loop pegs the
+single core it is given, and the page starves. That was measured, not guessed — `page.evaluate`
+itself timed out and every spec failed against a two-minute budget, for want of a canvas that no
+test asserts on. Blocking it also halves the suite's wall clock. The office is verified by looking
+at it, which is the only way a drawing can be verified anyway.
+
+**Warmed before the first test.** `e2e/global-setup.ts` loads the page once and waits for
+`window.__tt`. `webServer.url` only waits for Vite to *answer*, and Vite answers with the HTML
+shell while the module graph behind it is still uncompiled and transformed on demand — long enough
+on a two-core runner that the first click of the first spec timed out against a cold cache wearing
+the costume of a broken app.
+
 **Deterministic from the first frame.** `createInitialState` falls back to `Math.random()` when no
 seed is given and the setup screen has no seed field, so `openGame()` installs a seeded
 `Math.random` before any app code runs, and clears `localStorage`. The whole boot — seed, practice
@@ -176,3 +192,7 @@ waiting on you" is a real assertion and not a tautology.
   panels, the quarter review, the hire modal, or the end screen — all of which are blocking
   surfaces, and three of them are modals that could in principle strand the clock.
 - **No visual regression.** Nothing would notice the game turning grey.
+- **The office scene is never exercised here** — see above for why. Nothing in CI would notice the
+  scene throwing on load; the `.catch()` would swallow it and the suite would stay green while the
+  home screen quietly went blank. A cheap guard would be one spec that *allows* the module through
+  and asserts a canvas appears, kept away from the frame-counting tests so it cannot starve them.
