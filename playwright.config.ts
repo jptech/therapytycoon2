@@ -35,8 +35,12 @@ export default defineConfig({
   // A full in-game day is ten hours of game time — about fifteen seconds of wall
   // clock at 4×, plus whatever the day stops to ask you. 90s is roomy but not so
   // roomy that a genuine freeze looks like a slow machine.
-  timeout: 90_000,
-  expect: { timeout: 10_000 },
+  timeout: process.env.CI ? 120_000 : 90_000,
+  expect: { timeout: process.env.CI ? 20_000 : 10_000 },
+
+  // Compiles the module graph once before any test opens a page — see the note
+  // in the file. Without it the first click of the first spec races a cold Vite.
+  globalSetup: './e2e/global-setup.ts',
 
   use: {
     baseURL: BASE_URL,
@@ -44,9 +48,11 @@ export default defineConfig({
     screenshot: 'only-on-failure',
     video: 'off',
     // Without this a covered button waits for the whole test budget and the
-    // failure says "timeout" rather than "something was on top of it".
-    actionTimeout: 15_000,
-    navigationTimeout: 30_000,
+    // failure says "timeout" rather than "something was on top of it". The CI
+    // runner is a good deal slower than a laptop, so it gets more rope — but
+    // not so much that a genuinely covered control looks like a slow machine.
+    actionTimeout: process.env.CI ? 30_000 : 15_000,
+    navigationTimeout: process.env.CI ? 60_000 : 30_000,
   },
 
   projects: [
