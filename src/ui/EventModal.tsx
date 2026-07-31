@@ -147,8 +147,11 @@ function MoodMotif({ mood, color }: { mood: MoodKey; color: string }) {
     >
       {mood === 'warm' && (
         <g {...common}>
-          {/* a shade, and the light falling out of it */}
+          {/* a shade, and the light actually falling out of it — the cone is
+              what makes the three arcs below read as light rather than as
+              contour lines on a hill */}
           <path d="M452 6 L472 6 M462 6 L462 20" />
+          <path d="M437 44 L487 44 L508 92 L416 92 Z" fill={faint} stroke="none" opacity={0.32} />
           <path d="M441 42 L462 20 L483 42 Z" fill={faint} />
           <path d="M436 52 Q462 62 488 52" strokeWidth={1.1} />
           <path d="M424 66 Q462 82 500 66" strokeWidth={0.9} opacity={0.7} />
@@ -168,6 +171,8 @@ function MoodMotif({ mood, color }: { mood: MoodKey; color: string }) {
         <g {...common}>
           <path d="M420 30 Q424 14 442 16 Q452 4 468 12 Q490 8 492 28 Q510 30 506 42 L424 42 Q412 40 420 30 Z" fill={faint} />
           <path d="M430 52 L424 74 M448 50 L442 78 M466 54 L460 76 M484 50 L478 80 M500 56 L495 72" strokeWidth={1.1} opacity={0.72} />
+          {/* where it lands. Rain with nothing under it is just diagonal lines. */}
+          <path d="M418 86 q8 3 16 0M446 90 q10 3 20 0M478 88 q7 3 14 0" strokeWidth={0.9} opacity={0.4} />
         </g>
       )}
       {mood === 'proud' && (
@@ -194,6 +199,10 @@ function MoodMotif({ mood, color }: { mood: MoodKey; color: string }) {
         <g {...common}>
           <rect x="436" y="20" width="68" height="46" rx="4" fill={faint} />
           <path d="M436 24 L470 46 L504 24" />
+          {/* a stamp in the corner and a cancellation over it — two marks that
+              turn a rectangle into post */}
+          <rect x="486" y="25" width="12" height="14" rx="1" strokeWidth={1} opacity={0.7} />
+          <path d="M484 30 h16M484 35 h16" strokeWidth={0.7} opacity={0.45} />
           <path d="M400 80 Q430 76 438 62" strokeDasharray="3 5" opacity={0.6} />
         </g>
       )}
@@ -318,6 +327,10 @@ export function EventModal() {
         className="h-[6px] w-full"
         style={{
           background: `linear-gradient(180deg, color-mix(in oklab, ${mood.color} 62%, white) 0%, ${mood.color} 45%, color-mix(in oklab, ${mood.color} 84%, black) 100%)`,
+          // The strip is a painted edge on a card, not a coloured div sitting
+          // next to one: it takes the rim light and drops a shadow onto the
+          // paper below it, in the mood's own hue.
+          boxShadow: `inset 0 1px 0 rgba(255,255,255,0.34), 0 2px 5px -2px color-mix(in oklab, ${mood.color} 72%, transparent)`,
         }}
         aria-hidden
       />
@@ -379,15 +392,19 @@ export function EventModal() {
             <p className="text-[0.89rem] italic leading-[1.7] text-ink-soft mt-2 max-w-[62ch]" role="status">
               {showing.text}
             </p>
+            {/* The clock giving itself back. Grooved like every other meter in
+                the game so it reads as the same instrument, and lit along the
+                top so a 3px bar still has a form. */}
             <div
-              className="mt-3 h-[3px] rounded-full overflow-hidden"
-              style={{ background: 'color-mix(in oklab, var(--color-ink) 10%, transparent)' }}
+              className="tt-track mt-3 h-[3px] rounded-full overflow-hidden"
+              style={{ background: 'color-mix(in oklab, var(--color-ink) 11%, transparent)' }}
               aria-hidden
             >
               <div
                 className="h-full rounded-full"
                 style={{
-                  background: mood.color,
+                  background: `linear-gradient(180deg, color-mix(in oklab, ${mood.color} 58%, white) 0%, ${mood.color} 70%)`,
+                  boxShadow: `0 0 8px -1px color-mix(in oklab, ${mood.color} 60%, transparent)`,
                   width: barSpent ? '0%' : '100%',
                   transition: `width ${AFTERMATH_MS}ms linear`,
                 }}
@@ -425,7 +442,7 @@ export function EventModal() {
                 )}
                 <span
                   aria-hidden
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-ink-faint text-[0.95rem] leading-none"
+                  className="tt-choice-go absolute right-3 top-1/2 -translate-y-1/2 grid place-items-center w-[21px] h-[21px] rounded-full text-ink-faint text-[0.82rem] leading-none pb-px"
                 >
                   ›
                 </span>

@@ -197,7 +197,13 @@ waiting on you" is a real assertion and not a tautology.
 - **Act 1 only.** Everything here happens on day one or two. Nothing exercises the Act 3 policy
   panels, the quarter review, the hire modal, or the end screen — all of which are blocking
   surfaces, and three of them are modals that could in principle strand the clock.
-- **No visual regression.** Nothing would notice the game turning grey.
+- **No visual regression.** Nothing would notice the game turning grey. This is not hypothetical:
+  the art pass found four amber hairlines drawn across the full width of the building, from a
+  `Graphics` subpath that Pixi's `arc()` opened without a `moveTo`. They had been there for some
+  time, through a green `tsc`, 275 green unit tests and six green specs. `bun run shots` is the
+  current answer — a seeded run with the office *on*, four deterministic frames into
+  `docs/media/` — and it is a tool for a person to look at, not a check. Turning it into one is in
+  [FUTURE_WORK.md](../FUTURE_WORK.md) → *There is no test that can see the scene*.
 - **The office scene is never exercised here** — see above for why. Nothing in this suite would
   notice the scene throwing on load; the `.catch()` would swallow it and the run would stay green
   while the home screen quietly went blank. A cheap guard would be one spec that *allows* the

@@ -76,12 +76,29 @@ function ToastCard({ toast, animate }: { toast: Toast; animate: boolean }) {
     <div
       role="status"
       aria-live="polite"
-      className={`card-warm pointer-events-auto flex items-start gap-2.5 px-3 py-2.5 text-left ${
+      className={`card-warm pointer-events-auto relative overflow-hidden flex items-start gap-2.5 pl-3.5 pr-3 py-2.5 text-left ${
         animate ? 'rise-in' : ''
       }`}
-      style={{ borderLeft: `3px solid ${accent}`, boxShadow: 'var(--shadow-lamp)' }}
+      style={{ boxShadow: 'var(--shadow-lamp)' }}
     >
-      <span aria-hidden className="text-[1.05rem] leading-none mt-0.5 shrink-0">
+      {/* The kind-stripe, lit down its own length rather than a flat 3px of
+          colour — it is the only thing telling good news from bad at a glance,
+          and it should look like a painted edge, not a border property. */}
+      <span
+        aria-hidden
+        className="absolute inset-y-0 left-0 w-[3px]"
+        style={{
+          background: `linear-gradient(180deg, color-mix(in oklab, ${accent} 52%, white) 0%, ${accent} 44%, color-mix(in oklab, ${accent} 80%, black) 100%)`,
+        }}
+      />
+      <span
+        aria-hidden
+        className="grid place-items-center shrink-0 w-6 h-6 rounded-full text-[0.92rem] leading-none mt-px"
+        style={{
+          background: `color-mix(in oklab, ${accent} 15%, transparent)`,
+          boxShadow: `inset 0 0 0 1px color-mix(in oklab, ${accent} 26%, transparent), inset 0 1px 0 rgba(255,253,246,0.7)`,
+        }}
+      >
         {toast.icon || TOAST_ICON[toast.kind] || '•'}
       </span>
       <div className="min-w-0 flex-1">
@@ -130,21 +147,33 @@ interface Petal {
   size: number;
   color: string;
   opacity: number;
+  /** Which of the three cut shapes, so the fall is not sixty of one leaf. */
+  shape: number;
+  /** Petals near the camera are bigger, faster and less in focus. */
+  depth: number;
 }
 
 const PETAL_COLORS = ['#8FAF8B', '#E8A94C', '#8B6B8F', '#F6D79B', '#A9C6A4', '#B58AA5'];
 
+/** Three cuts: a rounded petal, a narrow one, and a small blossom. */
+const PETAL_SHAPES = ['58% 4% 58% 58%', '80% 12% 80% 12%', '50% 50% 46% 54% / 60% 58% 42% 40%'];
+
 function makePetals(count: number): Petal[] {
   const out: Petal[] = [];
   for (let i = 0; i < count; i++) {
+    // Depth drives size, speed and haze together — vary them independently and
+    // the fall stops reading as one volume of air and starts reading as noise.
+    const depth = Math.random();
     out.push({
       left: Math.random() * 100,
-      delay: Math.random() * 900,
-      fall: 1900 + Math.random() * 1400,
-      flutter: 900 + Math.random() * 800,
-      size: 7 + Math.random() * 7,
+      delay: Math.random() * 1100,
+      fall: 2600 - depth * 700 + Math.random() * 1100,
+      flutter: 1000 + Math.random() * 900,
+      size: 5.5 + depth * 8,
       color: PETAL_COLORS[i % PETAL_COLORS.length],
-      opacity: 0.62 + Math.random() * 0.34,
+      opacity: 0.44 + depth * 0.46,
+      shape: i % PETAL_SHAPES.length,
+      depth,
     });
   }
   return out;
@@ -168,9 +197,12 @@ function PetalFall({ seed }: { seed: string }) {
             style={{
               width: p.size,
               height: p.size * 1.35,
-              background: p.color,
+              // A petal is not one flat colour: the light catches the curl of it
+              // and the far side falls into its own shadow.
+              background: `linear-gradient(150deg, color-mix(in oklab, ${p.color} 62%, white) 0%, ${p.color} 54%, color-mix(in oklab, ${p.color} 76%, #16292c) 100%)`,
               opacity: p.opacity,
-              borderRadius: '58% 4% 58% 58%',
+              borderRadius: PETAL_SHAPES[p.shape],
+              filter: p.depth < 0.3 ? 'blur(0.6px)' : undefined,
               animation: `tt-petal-flutter ${p.flutter}ms ease-in-out infinite alternate`,
             }}
           />
@@ -204,13 +236,30 @@ function CureCeremony({ alumni, onDone }: { alumni: AlumniRecord; onDone: () => 
     <div
       role="presentation"
       onClick={onDone}
-      className="fixed inset-0 z-[60] grid place-items-center p-4 fade-in cursor-pointer"
+      className="vignette fixed inset-0 z-[60] grid place-items-center p-4 fade-in cursor-pointer"
       style={{
         background: 'color-mix(in oklab, var(--color-night) 70%, transparent)',
         backdropFilter: 'blur(4px)',
         WebkitBackdropFilter: 'blur(4px)',
       }}
     >
+      {/* One breath of lamplight behind the card. The ceremony is relief, not a
+          jackpot, so the light arrives before the card and then just stays.
+          Painted before the petals so they fall in front of it. */}
+      <div
+        aria-hidden
+        // inset-0 + auto margins rather than trusting `place-items-center` to
+        // reach an absolutely positioned grid child.
+        className="juice-only absolute inset-0 m-auto pointer-events-none"
+        style={{
+          width: 'min(760px, 120vw)',
+          height: 'min(760px, 120vw)',
+          background:
+            'radial-gradient(circle, color-mix(in oklab, var(--color-amber-glow) 26%, transparent) 0%, color-mix(in oklab, var(--color-amber) 10%, transparent) 38%, transparent 68%)',
+          animation: 'tt-bloom 1.6s var(--ease-warm) both',
+        }}
+      />
+
       <PetalFall seed={alumni.id} />
 
       <div
@@ -224,13 +273,43 @@ function CureCeremony({ alumni, onDone }: { alumni: AlumniRecord; onDone: () => 
         <h2 className="display text-[1.75rem] leading-tight text-ink mt-1">A good goodbye</h2>
 
         <div className="flex items-end justify-center gap-3 mt-4">
-          <Portrait
-            seed={alumni.portrait}
-            size={92}
-            glow
-            mood="happy"
-            title={`${alumni.handle}, discharged`}
-          />
+          {/* Hung, matted and glazed — the same frame this face will take on the
+              wall by the door. The ceremony and the wall should be the same
+              object seen twice, which is the whole point of keeping a wall. */}
+          <div
+            className="relative p-[7px] rounded-[4px]"
+            style={{
+              background: 'linear-gradient(160deg, #C09566 0%, #A87C51 46%, #8D6743 100%)',
+              boxShadow:
+                'inset 0 1px 0 rgba(255,244,224,0.5), inset 0 -1px 0 rgba(40,22,8,0.32), 0 10px 20px -12px rgba(24,46,46,0.6)',
+              transform: 'rotate(-0.8deg)',
+            }}
+          >
+            <div
+              className="p-[5px] rounded-[2px]"
+              style={{
+                background: 'var(--color-paper-warm)',
+                boxShadow: 'inset 0 1px 3px rgba(24,46,46,0.22)',
+              }}
+            >
+              <Portrait
+                seed={alumni.portrait}
+                size={92}
+                glow
+                mood="happy"
+                title={`${alumni.handle}, discharged`}
+              />
+            </div>
+            {/* the raking sheen off the glazing */}
+            <span
+              aria-hidden
+              className="absolute inset-0 pointer-events-none rounded-[4px]"
+              style={{
+                background:
+                  'linear-gradient(128deg, rgba(255,255,255,0.26) 0%, rgba(255,255,255,0.05) 34%, transparent 56%)',
+              }}
+            />
+          </div>
           <Plant progress={100} size={68} species={alumni.portrait.hue % 6} className="juice-only" />
         </div>
 
@@ -290,19 +369,38 @@ function LevelUpGlow({ moment, onDone }: { moment: LevelUpMoment; onDone: () => 
       aria-hidden
       className="juice-only fixed inset-0 z-[55] pointer-events-none grid place-items-center overflow-hidden"
     >
-      {[0, 220, 440].map((delay) => (
+      {/* Three rings, no two alike: the first is the event, the two behind it
+          are its echo. Equal weight made it read as a loading spinner. */}
+      {[
+        { delay: 0, w: 2.2, o: 0.9, glow: 12 },
+        { delay: 240, w: 1.4, o: 0.55, glow: 8 },
+        { delay: 500, w: 0.9, o: 0.32, glow: 5 },
+      ].map((ring) => (
         <span
-          key={delay}
+          key={ring.delay}
           className="absolute left-1/2 top-1/2 rounded-full"
           style={{
             width: '38vmin',
             height: '38vmin',
-            border: '2px solid var(--color-amber)',
-            boxShadow: '0 0 60px 10px color-mix(in oklab, var(--color-amber) 34%, transparent)',
-            animation: `tt-ring-out 1500ms var(--ease-warm) ${delay}ms both`,
+            border: `${ring.w}px solid var(--color-amber)`,
+            opacity: ring.o,
+            boxShadow: `0 0 ${ring.glow * 5}px ${ring.glow}px color-mix(in oklab, var(--color-amber) 30%, transparent)`,
+            animation: `tt-ring-out 1700ms var(--ease-warm) ${ring.delay}ms both`,
           }}
         />
       ))}
+      {/* the room brightening under the rings, so the light has a source */}
+      <span
+        aria-hidden
+        className="absolute inset-0 m-auto"
+        style={{
+          width: 'min(680px, 110vw)',
+          height: 'min(680px, 110vw)',
+          background:
+            'radial-gradient(circle, color-mix(in oklab, var(--color-amber-glow) 22%, transparent) 0%, transparent 62%)',
+          animation: 'tt-bloom 1.4s var(--ease-warm) both',
+        }}
+      />
       <div className="paper pop-in px-6 py-4 text-center relative">
         <div className="text-[0.6rem] font-extrabold uppercase tracking-[0.22em] text-ink-faint">
           The practice grew
@@ -498,12 +596,22 @@ const KEYFRAMES = `
   84%  { opacity: 1; }
   100% { transform: translate3d(0, 112vh, 0); opacity: 0; }
 }
+/* The scaleX pinch in the middle is the petal turning edge-on. Without it a
+   falling petal is a rectangle sliding sideways; with it, it tumbles. */
 @keyframes tt-petal-flutter {
-  from { transform: translateX(-14px) rotate(-38deg); }
-  to   { transform: translateX(14px) rotate(44deg); }
+  0%   { transform: translateX(-14px) rotate(-38deg) scaleX(1); }
+  50%  { transform: translateX(0) rotate(3deg) scaleX(0.26); }
+  100% { transform: translateX(14px) rotate(44deg) scaleX(0.94); }
 }
 @keyframes tt-ring-out {
   from { transform: translate(-50%, -50%) scale(0.12); opacity: 0.8; }
   to   { transform: translate(-50%, -50%) scale(3.4); opacity: 0; }
+}
+/* The room takes a breath of light. Slow in, slower out — a celebration in
+   this game is relief, and relief does not spike. */
+@keyframes tt-bloom {
+  0%   { opacity: 0; transform: scale(0.82); }
+  34%  { opacity: 1; transform: scale(1.04); }
+  100% { opacity: 0.72; transform: scale(1); }
 }
 `;

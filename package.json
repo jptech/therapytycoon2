@@ -23,6 +23,7 @@
     "balance": "bun run tools/balance.ts",
     "validate": "bun run tools/validate-content.ts",
     "playtest": "bun run tools/playtest.ts",
+    "shots": "bun run tools/screenshots.ts",
     "replay": "bun run tools/replay.ts",
     "test:e2e": "playwright test",
     "test:e2e:headed": "playwright test --headed",

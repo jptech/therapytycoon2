@@ -114,6 +114,19 @@ const SEAL: Record<EndKind, { color: string; glyph: string; ring: string }> = {
   collapsed: { color: '#8FAF8B', glyph: '🌿', ring: 'THE DOOR CLOSED · THE WORK DID NOT · ' },
 };
 
+/**
+ * One sprig of laurel, described once and mirrored. Leaves hang off the stem
+ * outward and get smaller toward the tip, which is the only reason a row of
+ * ellipses reads as a plant instead of as a row of ellipses.
+ */
+const LAUREL_LEAVES: { x: number; y: number; a: number; r: number }[] = [
+  { x: 41.8, y: 99, a: -22, r: 1 },
+  { x: 37.8, y: 88.2, a: -38, r: 0.94 },
+  { x: 35.6, y: 77.4, a: -54, r: 0.86 },
+  { x: 37.1, y: 66.6, a: -70, r: 0.76 },
+  { x: 41.4, y: 57, a: -86, r: 0.64 },
+];
+
 function Seal({ kind, spin }: { kind: EndKind; spin: boolean }) {
   const { color, glyph, ring } = SEAL[kind];
   const scallops = 26;
@@ -124,6 +137,14 @@ function Seal({ kind, spin }: { kind: EndKind; spin: boolean }) {
           <stop offset="0%" stopColor="#FAF5EC" />
           <stop offset="100%" stopColor={`color-mix(in oklab, ${color} 34%, #FAF5EC)`} />
         </radialGradient>
+        {/* Struck metal, not printed colour: lit from the upper left, dark at
+            the lower right, and nothing in between doing any work. */}
+        <linearGradient id="seal-bevel" x1="0.14" y1="0.06" x2="0.86" y2="0.94">
+          <stop offset="0%" stopColor="#FFFFFF" stopOpacity="0.5" />
+          <stop offset="42%" stopColor="#FFFFFF" stopOpacity="0.05" />
+          <stop offset="70%" stopColor="#2A1608" stopOpacity="0.06" />
+          <stop offset="100%" stopColor="#2A1608" stopOpacity="0.24" />
+        </linearGradient>
         <path
           id="seal-ring-path"
           d="M75 75 m -47 0 a 47 47 0 1 1 94 0 a 47 47 0 1 1 -94 0"
@@ -131,19 +152,48 @@ function Seal({ kind, spin }: { kind: EndKind; spin: boolean }) {
         />
       </defs>
 
-      {/* ribbon tails */}
+      {/* Ribbon tails, each folded once. The fold face is the darker sliver —
+          two flat triangles read as paper, three read as ribbon. */}
       <path d="M60 112 L52 146 L67 137 L75 148 L75 112 Z" fill={color} opacity="0.9" />
+      <path d="M60 112 L57 129 L67 137 L75 118 Z" fill="#2A1608" opacity="0.16" />
       <path d="M90 112 L98 146 L83 137 L75 148 L75 112 Z" fill={color} opacity="0.68" />
+      <path d="M90 112 L93 128 L83 137 L75 118 Z" fill="#2A1608" opacity="0.12" />
 
-      {/* scalloped medal edge */}
-      <g fill={color} opacity="0.85">
+      {/* Scalloped medal edge. Alternating radii keep it from reading as a
+          gear, and the offset dark copy underneath gives the rim a thickness. */}
+      <g fill="#2A1608" opacity="0.22">
         {Array.from({ length: scallops }).map((_, i) => {
           const a = (i / scallops) * Math.PI * 2;
-          return <circle key={i} cx={75 + Math.cos(a) * 58} cy={75 + Math.sin(a) * 58} r="6.4" />;
+          return (
+            <circle
+              key={i}
+              cx={75 + Math.cos(a) * 58}
+              cy={76.6 + Math.sin(a) * 58}
+              r={i % 2 ? 6.4 : 5.3}
+            />
+          );
+        })}
+      </g>
+      <g fill={color} opacity="0.9">
+        {Array.from({ length: scallops }).map((_, i) => {
+          const a = (i / scallops) * Math.PI * 2;
+          return (
+            <circle key={i} cx={75 + Math.cos(a) * 58} cy={75 + Math.sin(a) * 58} r={i % 2 ? 6.4 : 5.3} />
+          );
         })}
       </g>
       <circle cx="75" cy="75" r="58" fill={color} />
+      <circle cx="75" cy="75" r="58" fill="url(#seal-bevel)" />
       <circle cx="75" cy="75" r="52" fill="url(#seal-face)" stroke="rgba(30,58,58,0.28)" strokeWidth="1.2" />
+      {/* the specular the rim throws onto the face */}
+      <path
+        d="M75 25 a50 50 0 00-46 30"
+        fill="none"
+        stroke="#FFFFFF"
+        strokeOpacity="0.5"
+        strokeWidth="2.4"
+        strokeLinecap="round"
+      />
 
       {/* ring text */}
       <g className={spin ? 'seal-ring-spin' : ''} style={{ transformOrigin: '75px 75px' }}>
@@ -161,12 +211,45 @@ function Seal({ kind, spin }: { kind: EndKind; spin: boolean }) {
       </g>
 
       {/* laurel */}
-      <g stroke="var(--color-sage-deep)" strokeWidth="1.6" fill="none" opacity="0.7">
-        <path d="M46 92 q -8 -18 2 -32" />
-        <path d="M104 92 q 8 -18 -2 -32" />
+      <g opacity="0.72">
+        <path
+          d="M43 102 q -8 -24 0 -47M107 102 q 8 -24 0 -47"
+          stroke="var(--color-sage-deep)"
+          strokeWidth="1.5"
+          fill="none"
+          strokeLinecap="round"
+        />
+        {[1, -1].map((side) =>
+          LAUREL_LEAVES.map((leaf, i) => {
+            const x = side > 0 ? leaf.x : 150 - leaf.x;
+            const a = side > 0 ? leaf.a : -leaf.a;
+            return (
+              <ellipse
+                key={`${side}-${i}`}
+                cx={x - side * 3.8}
+                cy={leaf.y}
+                rx={5.4 * leaf.r}
+                ry={2.5 * leaf.r}
+                fill="var(--color-sage-deep)"
+                transform={`rotate(${a} ${x} ${leaf.y})`}
+              />
+            );
+          }),
+        )}
       </g>
       <circle cx="75" cy="75" r="34" fill="none" stroke="rgba(30,58,58,0.16)" strokeWidth="1" />
-      <text x="75" y="86" textAnchor="middle" fontSize="30" aria-hidden>
+      <circle cx="75" cy="75" r="31" fill="none" stroke="rgba(255,253,246,0.5)" strokeWidth="0.8" />
+      {/* The glyph sits on the face, so it casts. A duplicated text node behind
+          it would not work — colour emoji ignore `fill` and you get two of the
+          thing instead of one and its shadow. */}
+      <text
+        x="75"
+        y="86"
+        textAnchor="middle"
+        fontSize="30"
+        aria-hidden
+        style={{ filter: 'drop-shadow(0 1.5px 1px rgba(30,58,58,0.32))' }}
+      >
         {glyph}
       </text>
     </svg>
@@ -176,16 +259,33 @@ function Seal({ kind, spin }: { kind: EndKind; spin: boolean }) {
 // ── Small pieces ────────────────────────────────────────────────────────────
 
 function AlumniFrame({ a }: { a: AlumniRecord }) {
+  // Hung, not tiled. The tilt is derived from the portrait seed rather than
+  // rolled, so a wall looks the same every time you come back to it — and no
+  // two neighbours lean the same way, which is what stops a grid of faces
+  // reading as a spreadsheet.
+  const tilt = ((a.portrait.hue % 5) - 2) * 0.7;
   return (
     <li className="flex flex-col items-center text-center w-[74px]">
-      <Portrait
-        seed={a.portrait}
-        size={54}
-        mood="happy"
-        glow
-        title={`${a.handle} · finished on day ${a.curedDay}`}
-      />
-      <span className="display text-[0.76rem] text-ink leading-tight mt-1">{a.firstName}</span>
+      <div
+        className="p-[4px] rounded-[3px]"
+        style={{
+          background: 'linear-gradient(158deg, #C09566 0%, #A87C51 48%, #8D6743 100%)',
+          boxShadow:
+            'inset 0 1px 0 rgba(255,244,224,0.45), inset 0 -1px 0 rgba(40,22,8,0.3), 0 6px 12px -8px rgba(24,46,46,0.7)',
+          transform: `rotate(${tilt}deg)`,
+        }}
+      >
+        <div className="p-[3px] rounded-[2px]" style={{ background: 'var(--color-paper-warm)' }}>
+          <Portrait
+            seed={a.portrait}
+            size={54}
+            mood="happy"
+            glow
+            title={`${a.handle} · finished on day ${a.curedDay}`}
+          />
+        </div>
+      </div>
+      <span className="display text-[0.76rem] text-ink leading-tight mt-1.5">{a.firstName}</span>
       <span className="tabular text-[0.6rem] text-ink-faint leading-tight">{a.handle}</span>
       <span className="text-[0.58rem] text-ink-faint leading-tight">
         {CONDITION_LABELS[a.condition] ?? a.condition}

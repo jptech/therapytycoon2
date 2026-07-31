@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { type ReactNode, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { placeAnchored } from './anchor';
 import { setPanelWidth } from './dock';
@@ -87,6 +87,19 @@ html .card-warm {
   border-top-color: color-mix(in oklab, var(--color-ink) 7%, transparent);
   border-bottom-color: color-mix(in oklab, var(--color-ink) 18%, transparent);
   box-shadow: var(--tt-rim-soft), var(--tt-shadow-1);
+}
+
+/* A stat tile is the same card stock, turned a few degrees further into the
+   lamp. These are the figures a player reads a hundred times an hour, so the
+   corner wash is worth one extra background layer — it puts the number under
+   the light instead of on a slab. */
+html .tt-stat {
+  background-image:
+    var(--tt-grain),
+    radial-gradient(80% 96% at 4% -20%, color-mix(in oklab, var(--color-amber-glow) 42%, transparent), transparent 60%),
+    linear-gradient(180deg, #fffdf8 0%, var(--color-paper) 50%, var(--color-paper-warm) 100%);
+  background-size: 160px 160px, auto, auto;
+  background-blend-mode: multiply, normal, normal;
 }
 
 /* Card stock cut by hand — the radii are a hair uneven on purpose. */
@@ -293,6 +306,24 @@ html[data-reduced='true'] .tt-pressable:hover {
   }
 }
 
+/* The chevron on a choice card is a door handle: it warms when your hand is on
+   the door. Colour only — the card itself is already doing the movement, and
+   two things moving at once reads as a wobble. */
+.tt-choice-go {
+  background: color-mix(in oklab, var(--color-ink) 6%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--color-ink) 11%, transparent);
+  transition:
+    background-color 0.2s var(--ease-warm),
+    box-shadow 0.2s var(--ease-warm),
+    color 0.2s var(--ease-warm);
+}
+.tt-card-lift:hover .tt-choice-go,
+.tt-card-lift:focus-visible .tt-choice-go {
+  background: color-mix(in oklab, var(--color-amber) 30%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--color-amber-deep) 42%, transparent);
+  color: var(--color-ink);
+}
+
 /* A breakthrough should genuinely glow. Everything else stays quiet. */
 @keyframes tt-pill-breathe {
   0%, 100% { filter: drop-shadow(0 0 4px color-mix(in oklab, var(--color-amber) 42%, transparent)); }
@@ -415,10 +446,19 @@ export function Meter({
         style={{ height, background: 'color-mix(in oklab, var(--color-ink) 13%, transparent)' }}
       >
         {ghostPct !== undefined && (
-          <div
-            className="absolute inset-y-0 left-0 rounded-full"
-            style={{ width: `${ghostPct}%`, background: color, opacity: 0.26 }}
-          />
+          <>
+            <div
+              className="absolute inset-y-0 left-0 rounded-full"
+              style={{ width: `${ghostPct}%`, background: color, opacity: 0.24 }}
+            />
+            {/* The forecast needs a *line*, not just a paler bar: two soft fills
+                of the same hue are almost impossible to tell apart at 7px tall,
+                and this is a number people read at a glance. */}
+            <div
+              className="absolute inset-y-0 w-[2px] rounded-full"
+              style={{ left: `calc(${ghostPct}% - 1px)`, background: color, opacity: 0.6 }}
+            />
+          </>
         )}
         <div
           className="tt-fill absolute inset-y-0 left-0 rounded-full transition-[width] duration-500"
@@ -426,7 +466,16 @@ export function Meter({
             width: `${pct}%`,
             background: `linear-gradient(180deg, color-mix(in oklab, ${color} 72%, white) 0%, ${color} 62%, color-mix(in oklab, ${color} 84%, black) 100%)`,
           }}
-        />
+        >
+          {/* The leading edge is where the eye lands, so it gets the lamp. */}
+          {pct > 2 ? (
+            <span
+              aria-hidden
+              className="absolute inset-y-[1px] right-0 w-[2px] rounded-full"
+              style={{ background: 'rgba(255, 253, 246, 0.55)' }}
+            />
+          ) : null}
+        </div>
       </div>
     </div>
   );
@@ -460,7 +509,7 @@ export function StatTile({
     <Cmp
       onClick={onClick}
       title={title}
-      className={`card-warm px-3 py-2 text-left ${onClick ? 'tt-pressable' : ''}`}
+      className={`card-warm tt-stat px-3 py-2 text-left ${onClick ? 'tt-pressable' : ''}`}
     >
       <div className="flex items-center gap-1.5 text-[0.63rem] font-extrabold uppercase tracking-[0.09em] text-ink-faint">
         {icon}
@@ -500,7 +549,19 @@ export function SectionHeading({
 export function EmptyState({ icon, title, body }: { icon: string; title: string; body?: string }) {
   return (
     <div className="flex flex-col items-center justify-center text-center py-10 px-6 opacity-80">
-      <div className="text-3xl mb-2">{icon}</div>
+      {/* The glyph sits on a pressed disc rather than floating on the page —
+          an empty state is still a place, and a place has a surface. */}
+      <div
+        className="grid place-items-center w-14 h-14 rounded-full text-3xl mb-2.5"
+        style={{
+          background:
+            'radial-gradient(80% 80% at 34% 26%, color-mix(in oklab, var(--color-amber-glow) 30%, transparent), transparent 72%), color-mix(in oklab, var(--color-ink) 5%, transparent)',
+          boxShadow:
+            'inset 0 1px 3px color-mix(in oklab, var(--color-ink) 14%, transparent), inset 0 -1px 0 rgba(255,253,246,0.6)',
+        }}
+      >
+        {icon}
+      </div>
       <div className="display text-[0.98rem] text-ink">{title}</div>
       {body ? <div className="text-[0.78rem] text-ink-faint max-w-[34ch] mt-1">{body}</div> : null}
     </div>
@@ -521,6 +582,11 @@ export function Sparkline({
   color?: string;
   fill?: boolean;
 }) {
+  // Hooks before the early return, or the rules-of-hooks order breaks the first
+  // time a panel renders a one-point series and then a real one. Stripped of
+  // punctuation because React's ids carry «guillemets», and a gradient is
+  // referenced through url(#…) where those are asking for trouble.
+  const gid = useId().replace(/[^a-zA-Z0-9-]/g, '');
   if (data.length < 2) return <svg width={width} height={height} />;
   const min = Math.min(...data);
   const max = Math.max(...data);
@@ -531,13 +597,25 @@ export function Sparkline({
     return [x, y] as const;
   });
   const d = pts.map(([x, y], i) => `${i ? 'L' : 'M'}${x.toFixed(1)} ${y.toFixed(1)}`).join(' ');
+  const [hx, hy] = pts[pts.length - 1];
   return (
     <svg width={width} height={height} aria-hidden className="overflow-visible">
-      {fill && (
-        <path d={`${d} L${width} ${height} L0 ${height} Z`} fill={color} opacity="0.14" />
-      )}
+      <defs>
+        {/* The fill fades out downward instead of sitting as one flat wash, so
+            the line stays the thing you read and the area stays atmosphere. */}
+        <linearGradient id={`spark-${gid}`} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={color} stopOpacity="0.26" />
+          <stop offset="100%" stopColor={color} stopOpacity="0.02" />
+        </linearGradient>
+      </defs>
+      {fill && <path d={`${d} L${width} ${height} L0 ${height} Z`} fill={`url(#spark-${gid})`} />}
+      {/* a hairline the series sits on — without it the last point floats */}
+      <path d={`M0 ${height - 0.5}H${width}`} stroke={color} strokeWidth="0.75" opacity="0.28" />
       <path d={d} stroke={color} strokeWidth="1.7" fill="none" strokeLinejoin="round" strokeLinecap="round" />
-      <circle cx={pts[pts.length - 1][0]} cy={pts[pts.length - 1][1]} r="2.4" fill={color} />
+      {/* The head of the line is the value that matters: a paper-coloured collar
+          around it keeps it legible where the line doubles back over itself. */}
+      <circle cx={hx} cy={hy} r="3.4" fill="var(--color-paper)" opacity="0.9" />
+      <circle cx={hx} cy={hy} r="2.3" fill={color} />
     </svg>
   );
 }
@@ -561,19 +639,39 @@ export function ProgressRing({
   const r = (size - stroke) / 2;
   const c = 2 * Math.PI * r;
   const v = Math.max(0, Math.min(1, value));
+  // The head of the arc, in pre-rotation coordinates — the svg itself carries
+  // the -90° that puts zero at twelve o'clock.
+  const theta = v * Math.PI * 2;
+  const hx = size / 2 + Math.cos(theta) * r;
+  const hy = size / 2 + Math.sin(theta) * r;
   return (
     <div className="relative inline-flex items-center justify-center" style={{ width: size, height: size }}>
       <svg width={size} height={size} className="-rotate-90 overflow-visible">
         <circle cx={size / 2} cy={size / 2} r={r} stroke={track} strokeWidth={stroke} fill="none" />
-        {/* the track's own shadow, so the arc reads as sitting in a groove */}
+        {/* The groove: a dark hairline high in the track and a paper one low in
+            it, matching .tt-track. One offset ring on its own only ever reads as
+            a printing misregistration.
+
+            The offsets are along +x/−x, not −y/+y, because the whole svg carries
+            a −90° CSS rotation: rotate(−90°) maps (x, y) to (y, −x), so +x lands
+            on screen-up. Nudging in y here would light the ring from the side. */}
         <circle
           cx={size / 2}
           cy={size / 2}
           r={r}
-          stroke="rgba(24,46,46,0.14)"
-          strokeWidth={stroke * 0.5}
+          stroke="rgba(24,46,46,0.16)"
+          strokeWidth={stroke * 0.45}
           fill="none"
-          transform={`translate(0 ${stroke * 0.22})`}
+          transform={`translate(${stroke * 0.26} 0)`}
+        />
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={r}
+          stroke="rgba(255,253,246,0.6)"
+          strokeWidth={stroke * 0.4}
+          fill="none"
+          transform={`translate(${-stroke * 0.3} 0)`}
         />
         <circle
           cx={size / 2}
@@ -590,6 +688,17 @@ export function ProgressRing({
             filter: v > 0.02 ? `drop-shadow(0 0 ${stroke * 0.9}px color-mix(in oklab, ${color} 55%, transparent))` : undefined,
           }}
         />
+        {/* A lit cap at the head. This is the ring's minute hand — with the arc
+            alone, "nearly done" and "done" look identical at 34px. */}
+        {v > 0.015 && v < 0.995 ? (
+          <circle
+            cx={hx}
+            cy={hy}
+            r={stroke * 0.42}
+            fill={`color-mix(in oklab, ${color} 42%, white)`}
+            style={{ transition: 'cx 0.4s var(--ease-warm), cy 0.4s var(--ease-warm)' }}
+          />
+        ) : null}
       </svg>
       {children ? <div className="absolute inset-0 grid place-items-center">{children}</div> : null}
     </div>

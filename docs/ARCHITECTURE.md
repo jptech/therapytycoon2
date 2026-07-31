@@ -162,6 +162,33 @@ each frame. It renders everything procedurally — no image assets, no network r
 lazy-loaded behind a `Suspense` boundary that resolves to a no-op component if the import or
 WebGL initialisation fails, so **the game remains fully playable without it**.
 
+Two files, split by what they know:
+
+- **`sprites.ts` is a drawing toolkit and knows nothing.** Rigged people, every prop, the cat, and
+  the handful of one-off Canvas 2D textures that do the lighting (glow, core, cone, beam, vignette,
+  side shade, grain, sky). It never imports game state. People are drawn with their feet at the
+  local origin; props stand on it too, so either can be dropped straight onto a room's floor line.
+- **`office.ts` composes.** The plan, the seats, the furniture placement, the shell, the backdrop,
+  the ambient ramps, the actors and the particle FX. It calls into `sprites.ts` by name — a
+  signature change there is a compile error here, and a prop that quietly grows wider collides
+  with a neighbour that was placed by hand.
+
+Three rules keep the scene honest, and all three have been broken at least once:
+
+1. **Geometry is never random.** `hash01(a, b, salt)` and `wobble(...)` hash a position into the
+   crookedness of a picture frame or the tone of a floorboard, so the office looks hand-laid,
+   holds still, and comes back identical after a rebuild. `Math.random()` appears in exactly two
+   legitimate places: per-actor animation *phase*, and the one-off cached grain texture.
+2. **Geometry is built when the plan changes, never per frame.** `signature()` decides that.
+   Everything that moves — light, weather, the sun and moon, the day's colour — is a tint, an
+   alpha, a position or a skew on a sprite that already exists. `layout()` re-fits the transform
+   and redraws the screen-space backdrop *without* rebuilding the plan, because resizing a window
+   must not teleport the people back to their spawn points.
+3. **A subpath needs a `moveTo`.** Pixi's `arc()` continues the current path rather than starting
+   one, and a path that has just been filled or stroked has its cursor back at the origin. Two
+   `arc()` calls without one were dragging hairlines across the whole building from the top-left
+   corner of the design box. If you add an `arc`, open it with a `moveTo` to its first point.
+
 ## Audio
 
 `src/audio/` synthesises every sound with the Web Audio API — there are no audio files. Sounds

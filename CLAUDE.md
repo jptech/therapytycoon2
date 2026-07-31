@@ -11,6 +11,7 @@ bun run test:e2e     # Playwright — one full day in a real browser; see docs/T
 bun run balance      # headless balance harness — READ docs/BALANCE.md FIRST
 bun run playtest     # narrated single run — the fastest way to see a change
 bun run replay       # replay a recorded action log; --verify checks it reproduces
+bun run shots        # regenerate the README screenshots from a seeded run
 bun run build
 ```
 
@@ -104,6 +105,27 @@ which reach `lastDayResults`. Read the room through `sessionMembers()` / `sessio
 else's hour. Any new `schedule.filter(x => x.clientId === ...)` is a bug waiting for the first
 group booking. `src/sim/sessiontypes.test.ts` guards the seam.
 
+**In the scene, an `arc()` needs its own `moveTo`.** Pixi's `arc` *continues* the current path
+rather than starting one, and a path that has just been filled or stroked has its cursor back at
+the origin — so an `arc` opening a subpath draws a line to itself from the corner of the world.
+Two of them shipped: a wall clock's bezel highlight dragged four amber hairlines the full width of
+the building, and the session door's progress ring drew a spoke through its own dial. Neither is
+visible to `tsc`, to a unit test, or to the e2e suite — which blocks the office module on purpose.
+The only instrument that sees this class of bug is a screenshot of the whole frame, so **look at
+the game after you touch the scene.** `bun run shots` takes four.
+
+**Nothing in `src/scene/` may use `Math.random()` for geometry.** Positions, sizes, angles, and
+per-object colours all come from `hash01(a, b, salt)` / `wobble(...)`, hashed off where the thing
+sits — that is what makes a picture frame hang at the same crooked angle for the whole run and
+pick it again after a rebuild. Two uses are legitimate and both are commented where they live:
+per-actor animation *phase* in `createPerson`/`createCat`, and the one-off cached `grainTexture`.
+
+**`office.ts` places every prop by hand.** `sprites.ts` draws a prop standing on its local origin;
+`office.ts` knows its x to the unit and stands its neighbour beside it. A prop that quietly grows
+wider or taller in `sprites.ts` therefore collides with something in `office.ts` that nothing will
+report. Keep footprints, and keep every exported signature source-compatible — new parameters are
+optional with defaults.
+
 **Floating UI must portal to `document.body`.** The HUD strip clips its overflow *and* creates a
 stacking context via `backdrop-filter`, so anything positioned inside it is both cut off and
 trapped below the scene. Use `placeAnchored()` from `src/ui/anchor.ts` for positioning — it flips
@@ -135,12 +157,16 @@ directly from the UI or a tool is a hole in the log. `src/sim/replay.test.ts` gu
    portals or the day loop: `bun run test:e2e`** (~50s). It is the only layer that can see a
    clipped tooltip, a panel under the HUD, or a clock that will not start. First run on a machine
    needs `bun run e2e:install` once. See docs/TESTING.md.
-4. **If you touched anything in `src/sim/` or `src/content/`: `bun run balance -- --runs 20
+4. **If you touched `src/scene/` or `src/ui/Portrait.tsx`: look at it.** No test in this project
+   can see the artwork — the e2e suite blocks the office module deliberately. `bun run shots`
+   boots a seeded run with the scene on and writes four frames to `docs/media/`; open them. A
+   stray hairline once ran the width of the building through a fully green build.
+5. **If you touched anything in `src/sim/` or `src/content/`: `bun run balance -- --runs 20
    --days 200 --difficulty cozy,standard,challenge`** and compare against the table in
    docs/BALANCE.md. Watch the grade distribution and the late-game spread first — they move
    before anything else does. If the report prints `⚠ Late-game looks SOLVED`, you have
    reintroduced the core bug.
-5. **If you touched anything that produces *moments* rather than *numbers*** (events, arc beats,
+6. **If you touched anything that produces *moments* rather than *numbers*** (events, arc beats,
    milestones, toasts): `bun run playtest`. The statistical harness smooths pacing problems away
    completely — both event-pacing bugs in this project were invisible in the sweep and obvious in
    the first minute of the narrated run.

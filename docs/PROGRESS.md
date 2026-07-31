@@ -414,6 +414,59 @@ difference between a group arriving and a group marching.
 
 ---
 
+## Phase 13 — An art pass, and the hairline nobody could see
+
+Four surfaces got a craft pass at once — the SVG portraits, the Pixi drawing toolkit, the scene
+composition, and the UI chrome — on the rule that each owned a disjoint set of files and none of
+them changed a signature the others called. The palette was frozen for the duration, because
+`PAL` in `sprites.ts` and the `@theme` block in `theme.css` are the same eighteen colours written
+down twice and a drift between them is invisible until something sits next to something else.
+
+**The portraits were the worst thing in the game and the easiest to miss.** At 46px on a client
+card they read fine. Rendered at 220px they were a passport photo taken from a foot away: the head
+filled the entire clip circle, there was no neck, the shoulders were a sliver at the bottom, the
+twelve hairstyles had been authored against a head that no longer existed and sat on the skull like
+swim caps, the ears were two detached lumps, and every single face was the same face with a
+different colour — no nose, identical eyes, identical mouth, identical blush. It is now a bust: a
+smaller head on five face shapes, hair re-authored in a back layer and a front layer so long styles
+fall behind the shoulders, and per-seed variation in eye shape and spacing, brow weight and tilt,
+nose, mouth, lips and blush — all of it hashed out of the eight integers `PortraitSeed` already
+carries, because the sim owns that type and a craft pass does not get to extend it.
+
+Two real bugs fell out of looking closely. The `<defs>` id concatenated seed digits with no
+separator, so `(skin 1, hair 12)` and `(skin 11, hair 2)` minted the same string and two different
+people shared one clipPath and one gradient. And the `Plant` motif — the reward for finishing a
+client — had a stem long enough that a fully bloomed flower's top petals were clipped off by the
+viewBox. Both had been true for the whole build.
+
+**The scene was mostly missing, not mostly wrong.** On any wide viewport the building fills the
+bottom 40% of the frame and the rest was a flat blue-grey wash with five invisible cloud ellipses
+in it, the roof was one dark triangle, and the "skyline" was the same `PAL.night` at two alphas —
+which is not depth, it is two grey blocks. There is now a horizon that sits behind the roofline, a
+sun and moon that hand over the arc at dusk, four backdrop bands separated in warmth as well as in
+value, a hill town whose windows come on when ours do, a front garden with a path and a gate and a
+street lamp, a roof with courses and an eave and a gutter, cladding, and a painted name board.
+
+**The bug that was there the whole time, in front of everyone.** Four amber hairlines fanned
+across the entire building from the top-left corner of the design box. They were not new — they
+came from `drawWallClock`, which opened a subpath with `arc()`, and Pixi's `arc` continues the
+current path rather than starting one. A path that has just been stroked has its cursor back at
+the origin, so the bezel highlight on a wall clock was drawing a line to itself from the corner of
+the world. The same latent mistake was sitting in the session door's progress ring, where it was
+a spoke through the middle of the dial and read as decoration.
+
+The lesson is not "check your arcs". It is that **this defect was only ever visible in a
+screenshot of the whole frame.** The typechecker cannot see it, no unit test asserts on a canvas,
+and the e2e suite deliberately blocks the office module because a software rasteriser on a CI
+runner starves the page. Every other instrument in this project was working perfectly while a
+hairline ran the width of the building.
+
+Which is also why `bun run shots` now exists. The README embeds four pictures of the game, and
+every art pass silently makes them false; regenerating them is one seeded command rather than an
+afternoon of cropping, which is the only reason it will actually get done.
+
+---
+
 ## What I would tell the next person
 
 **The harness is the product.** Every serious balance problem in this build was found by reading a
@@ -432,8 +485,10 @@ finished and detailed before any of them started.
 **Every tool has exactly one blind spot, and they do not overlap.** The typechecker cannot see a
 60-year-old referred for "Child Behavioral". The balance harness cannot see the same dilemma firing
 three mornings running. The narrated playtest cannot see a tooltip running off the right edge. The
-browser tests cannot see a curve going soft over two hundred days. Every class of bug in this
-project was found by exactly one instrument and never by the others — so "it typechecks and the
+browser tests cannot see a curve going soft over two hundred days. And not one of them — including
+the browser tests, which block the office module on purpose — can see a stray hairline drawn the
+full width of the building; that took a screenshot of the whole frame and somebody looking at it.
+Every class of bug in this project was found by exactly one instrument and never by the others — so "it typechecks and the
 curves are fine" is not evidence of much on its own.
 
 The corollary is that **building an instrument is a way of finding bugs, not just of preventing

@@ -234,13 +234,56 @@ saying the day is holding.)
 
 ### The sky is filled, but the building still does not grow — **S**
 
-Half of this is done: the sky now carries a skyline, stars and a day-cycle tint, so the space above
-the building reads as evening rather than as nothing. What was *not* done is the other option —
-the building keeps its fixed fit at every viewport height, so on a tall screen the roof still sits
-low with a lot of sky above it. `layout()` in `src/scene/office.ts` computes a single fit
-transform, so scaling to the available height is one number; the question is whether a bigger
-building or a bigger sky is the better picture, and that is a taste call somebody should make by
-looking rather than by reasoning.
+Most of this is done. The backdrop now carries a horizon that sits behind the roofline, a sun and
+moon handing over one arc, four bands separated in warmth as well as value, a hill town whose
+windows come on when ours do, and a front garden — so the space above and below the building reads
+as a place rather than as nothing. What was still *not* done is the other option: the building
+keeps its fixed fit at every viewport height, so on a tall screen the roof sits low with a lot of
+sky above it. `fit()` in `src/scene/office.ts` computes a single transform, so scaling to the
+available height is one number; the question is whether a bigger building or a bigger sky is the
+better picture, and that is a taste call somebody should make by looking rather than by reasoning.
+
+### There is no test that can see the scene — **M**
+
+The art pass in Phase 13 found a stray hairline running the full width of the building, drawn by a
+subpath that Pixi's `arc()` opened without a `moveTo`. Nothing in the project could have caught it:
+`tsc` sees valid calls, no unit test touches a canvas, and the e2e suite blocks
+`src/scene/OfficeScene.tsx` on purpose because a software rasteriser on a CI runner starves the
+page badly enough that `page.evaluate` times out. It was found by taking a screenshot and looking
+at it.
+
+`bun run shots` is now most of the machinery for closing that gap — it boots a seeded run with the
+office *on* and captures four deterministic frames. Turning it into a check means committing
+reference images and diffing against them, and the honest problem is the tolerance: the scene has
+real animation in it (weather drift, the breath, the cat), so a naive pixel diff will be red every
+run. The cheap 80% is a **structural** assertion instead — render the world to a Pixi
+`extract.canvas()` at a fixed clock and assert that no non-transparent pixel falls outside the
+building's own bounding box, which is exactly the class of bug that shipped. Start in
+`tools/screenshots.ts`; it already has the boot and the frame-settling helper.
+
+### A pixel-hunt list from the art pass — **S**
+
+Small, real, and individually not worth a commit; someone doing another pass through this code
+should sweep them up. Reported by the review agents, verified in the diff, and left deliberately:
+
+- `drawStairs` in `src/scene/sprites.ts` is exported, documented, and called from nowhere —
+  `office.ts` uses `drawStairwell`. It just received a nosing-and-baluster treatment, which is
+  craft spent on dead code. Wire it up or delete it.
+- The brows in `drawPersonHead` are drawn *after* the style-specific front hair, so on the side
+  part, the bob and the centre part they render on top of the fringe. The comment on the block
+  claims the opposite.
+- `drawDoorPanel`'s and `drawFrontDoor`'s lower panels compute a non-positive height below h≈48
+  and h≈55 and silently vanish. Both callers pass more than that today.
+- The inner pair of roof dormers sit exactly on the ridge ends (`dormerAt` is `[0.17, 0.3, 0.7,
+  0.83]` against a ridge running `W*0.3`–`W*0.7`), so their gables peak above the main ridge.
+- `updateSky` is handed `reducedMotion` but not `calmMode`, so cloud drift continues in calm mode
+  while every other moving thing in the scene stops.
+- `layout()` is driven by a `ResizeObserver` and now redraws the backdrop, clouds, skyline, ground
+  and stars on every frame of a window drag. It is correct and it is not cheap; a trailing debounce
+  would cost nothing anybody would notice.
+- Several new marks land under one screen pixel at the usual fit scale (~1.5–2 px per design unit):
+  the noticeboard rule lines, the socket's pin slots, the cat's finer detail. That is noise, not
+  craft, and it should either grow or go.
 
 ### ~~Panel state is not remembered~~ — **done**
 

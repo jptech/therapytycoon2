@@ -33,8 +33,26 @@
   --radius-card: 14px;
   --radius-pill: 999px;
 
-  --shadow-lamp: 0 18px 44px -22px rgba(30, 58, 58, 0.55);
-  --shadow-soft: 0 2px 10px -4px rgba(30, 58, 58, 0.3);
+  /* One lamp, one ramp — but every step is *two* shadows, because a single
+     blur radius can only do one of the two jobs. The tight one is contact:
+     it says the object is touching the paper. The wide one is cast: it says
+     how far above the paper it is. The old one-line ramp had only the cast,
+     which is why everything read as floating in fog at the same height. */
+  --shadow-soft:
+    0 1px 1px -1px rgba(30, 58, 58, 0.22),
+    0 3px 9px -6px rgba(30, 58, 58, 0.28);
+  --shadow-lifted:
+    0 2px 3px -2px rgba(30, 58, 58, 0.24),
+    0 10px 20px -12px rgba(30, 58, 58, 0.34),
+    0 22px 36px -26px rgba(30, 58, 58, 0.3);
+  --shadow-lamp:
+    0 2px 4px -2px rgba(30, 58, 58, 0.2),
+    0 13px 26px -15px rgba(30, 58, 58, 0.36),
+    0 34px 58px -30px rgba(30, 58, 58, 0.46);
+
+  /* The lamp is above and to the left of every surface in this game, so the
+     top edge of anything made of paper catches it. */
+  --rim-warm: inset 0 1px 0 rgba(255, 252, 244, 0.78);
 
   --ease-warm: cubic-bezier(0.22, 1, 0.36, 1);
 }
@@ -87,6 +105,21 @@ button {
   cursor: pointer;
 }
 
+/* One focus ring for the whole game, offset far enough that the amber never
+   touches the control's own edge — an outline flush against a border reads as
+   a rendering artefact rather than as focus.
+   It lives in `base` and is written with :where(), and it needs *both*: :where()
+   drops the specificity, but an unlayered rule beats every @layer no matter how
+   specific, so out here it would silently override `.btn:focus-visible`, every
+   `focus-visible:outline-amber` utility, and `outline-none` itself. In `base` it
+   is the floor it is meant to be — components and utilities both win over it. */
+@layer base {
+  :where(a[href], button, input, select, textarea, summary, [tabindex]:not([tabindex='-1'])):focus-visible {
+    outline: 2px solid var(--color-amber-deep);
+    outline-offset: 2px;
+  }
+}
+
 /* ── Reusable component classes ───────────────────────────────────────────── */
 
 @layer components {
@@ -96,7 +129,7 @@ button {
       var(--color-paper);
     border: 1px solid color-mix(in oklab, var(--color-ink) 14%, transparent);
     border-radius: var(--radius-card);
-    box-shadow: var(--shadow-lamp);
+    box-shadow: var(--rim-warm), var(--shadow-lamp);
   }
 
   .paper-flat {
@@ -109,7 +142,7 @@ button {
     background: linear-gradient(180deg, var(--color-paper) 0%, var(--color-paper-warm) 100%);
     border: 1px solid color-mix(in oklab, var(--color-ink) 13%, transparent);
     border-radius: var(--radius-card);
-    box-shadow: var(--shadow-soft);
+    box-shadow: var(--rim-warm), var(--shadow-soft);
   }
 
   .display {
@@ -203,6 +236,29 @@ button {
     border-color: color-mix(in oklab, var(--color-ink) 12%, transparent);
   }
 
+  /* A pool of lamplight laid over a dark surface. Two stops, not one: the hot
+     core falls off fast, the ambient carries on for twice as far. A single
+     radial gradient reads as a spotlight in a theatre instead of a lamp in a
+     room. Composited with the element's own background, so it layers. */
+  .lamp-wash {
+    background-image:
+      radial-gradient(58% 46% at 50% 34%, color-mix(in oklab, var(--color-amber-glow) 26%, transparent) 0%, transparent 68%),
+      radial-gradient(128% 104% at 50% 28%, color-mix(in oklab, var(--color-amber) 13%, transparent) 0%, transparent 74%);
+  }
+
+  /* Corners darken. Every hand-lit illustration in this game does this, and a
+     rectangle that does not is the one that looks like a web page. Needs a
+     positioned host, and it paints over the host's content — so put it on a
+     backdrop, never on a card. */
+  .vignette::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    border-radius: inherit;
+    background: radial-gradient(112% 96% at 50% 40%, transparent 52%, rgba(22, 41, 44, 0.26) 100%);
+  }
+
   /* Panels slide over the office scene rather than replacing it. */
   .panel-enter {
     animation: panel-in 0.34s var(--ease-warm) both;
@@ -236,45 +292,96 @@ button {
     opacity: 1;
   }
 }
+/* Both entrances overshoot by a hair and settle. The extra keyframe is the
+   whole difference between an element appearing and an element arriving. */
 @keyframes pop-in {
-  from {
+  0% {
     opacity: 0;
     transform: scale(0.94) translateY(8px);
   }
-  to {
+  62% {
+    opacity: 1;
+    transform: scale(1.008) translateY(-2px);
+  }
+  100% {
     opacity: 1;
     transform: none;
   }
 }
 @keyframes rise-in {
-  from {
+  0% {
     opacity: 0;
     transform: translateY(16px);
   }
-  to {
+  64% {
+    opacity: 1;
+    transform: translateY(-2px);
+  }
+  100% {
     opacity: 1;
     transform: none;
   }
 }
+/* A filament, not a fluorescent tube: mostly it just breathes, and there is
+   exactly one real blink in the cycle. Prime-ish duration so it never falls
+   into step with the float or with a second lamp on the same screen. */
 @keyframes lamp-flicker {
   0%,
   100% {
-    opacity: 0.92;
+    opacity: 0.95;
   }
-  48% {
+  17% {
     opacity: 1;
   }
-  52% {
-    opacity: 0.86;
+  29% {
+    opacity: 0.91;
+  }
+  32% {
+    opacity: 0.99;
+  }
+  56% {
+    opacity: 0.94;
+  }
+  71% {
+    opacity: 1;
+  }
+  74% {
+    opacity: 0.87;
+  }
+  88% {
+    opacity: 0.97;
   }
 }
+/* Drifting, not bobbing — the sideways drift and the rock are what keep it
+   from reading as a lift going up and down. */
 @keyframes gentle-float {
   0%,
   100% {
-    transform: translateY(0);
+    transform: translate(0, 0) rotate(0deg);
   }
-  50% {
-    transform: translateY(-4px);
+  33% {
+    transform: translate(1px, -3px) rotate(0.5deg);
+  }
+  66% {
+    transform: translate(-1px, -4.5px) rotate(-0.4deg);
+  }
+}
+/* Motes in a light beam. Slow, and they never travel far — dust falls at a
+   speed that makes a room feel still, which is the entire point of it. */
+@keyframes dust-drift {
+  0% {
+    transform: translate3d(0, 0, 0);
+    opacity: 0;
+  }
+  14% {
+    opacity: var(--dust-peak, 0.7);
+  }
+  76% {
+    opacity: var(--dust-peak, 0.7);
+  }
+  100% {
+    transform: translate3d(var(--dust-x, 6px), var(--dust-y, 44px), 0);
+    opacity: 0;
   }
 }
 @keyframes shimmer {
@@ -287,10 +394,10 @@ button {
 }
 
 .animate-float {
-  animation: gentle-float 4.5s ease-in-out infinite;
+  animation: gentle-float 7.3s ease-in-out infinite;
 }
 .animate-flicker {
-  animation: lamp-flicker 5s ease-in-out infinite;
+  animation: lamp-flicker 7s ease-in-out infinite;
 }
 
 /* Respect the player's comfort settings. */

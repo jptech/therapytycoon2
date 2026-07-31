@@ -14,7 +14,7 @@
 ![PixiJS v8](https://img.shields.io/badge/PixiJS-v8-e91e63)
 ![No assets](https://img.shields.io/badge/assets-none%2C%20all%20procedural-6c8f7d)
 
-<img src="docs/media/office.png" alt="The office at eight in the morning: a waiting room with a cat asleep on a chair, a session under way in the consulting room, and the kettle on in the break room." width="100%">
+<img src="docs/media/office.png" alt="The practice at half past eight: a hill town waking up behind the roof, the cat sitting between the waiting-room chairs, a session under way in the consulting room, and the kettle on in the break room." width="100%">
 
 </div>
 
@@ -131,6 +131,7 @@ bun run typecheck    # tsc --noEmit
 bun run balance      # headless balance harness (see docs/BALANCE.md)
 bun run playtest     # narrate a single run: the beats, events and goodbyes in order
 bun run replay       # replay a recorded action log; --verify proves it reproduces
+bun run shots        # regenerate the four screenshots on this page from the real game
 ```
 
 The browser suite starts its own dev server, but it needs its browser downloaded once per machine:

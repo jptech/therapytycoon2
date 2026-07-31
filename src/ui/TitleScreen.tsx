@@ -76,6 +76,38 @@ function rollPracticeName(): string {
 // The scene
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * Brickwork, as one path.
+ *
+ * Courses every 38px with the joints staggered half a brick per row, which is
+ * the only thing that separates a brick wall from graph paper. Built at module
+ * scope from integers — geometry never touches Math.random (see the art rules),
+ * and this way the string is assembled once for the life of the tab rather than
+ * on every title-screen render.
+ */
+const BRICK = (() => {
+  const seg: string[] = [];
+  for (let row = 0; row < 5; row++) {
+    const top = 22 + row * 38;
+    if (row > 0) seg.push(`M40 ${top}h240`);
+    const offset = row % 2 ? 21 : 0;
+    for (let x = 40 + offset; x < 280; x += 42) seg.push(`M${x} ${top}v38`);
+  }
+  return seg.join('');
+})();
+
+/**
+ * Motes in the beam under the sill. Hand-placed rather than generated: four is
+ * enough to say "there is air in this room" and any more starts to read as
+ * snow. `dur` is prime-ish against its neighbours so they never pulse together.
+ */
+const DUST: { x: number; y: number; r: number; dx: number; dy: number; dur: number; delay: number }[] = [
+  { x: 118, y: 216, r: 1.5, dx: 5, dy: 30, dur: 9.4, delay: 0 },
+  { x: 172, y: 228, r: 1.1, dx: -4, dy: 24, dur: 11.8, delay: 2.6 },
+  { x: 214, y: 220, r: 1.7, dx: 6, dy: 33, dur: 8.7, delay: 4.1 },
+  { x: 146, y: 238, r: 1.2, dx: -3, dy: 18, dur: 13.2, delay: 1.3 },
+];
+
 function LitWindow({ animate }: { animate: boolean }) {
   return (
     <svg
@@ -90,18 +122,73 @@ function LitWindow({ animate }: { animate: boolean }) {
           <stop offset="52%" stopColor="#E8A94C" stopOpacity="0.24" />
           <stop offset="100%" stopColor="#E8A94C" stopOpacity="0" />
         </radialGradient>
-        <linearGradient id="tt-pane" x1="0" y1="0" x2="0.4" y2="1">
-          <stop offset="0%" stopColor="#FBE6BB" />
-          <stop offset="58%" stopColor="#F0C374" />
-          <stop offset="100%" stopColor="#DE9F49" />
+        {/* The room is a wall and a floor, not one flat wash. Both gradients are
+            steeper on the right because that is the side the lamp is on. */}
+        <linearGradient id="tt-wall" x1="0.1" y1="0" x2="0.9" y2="1">
+          <stop offset="0%" stopColor="#F7DDAC" />
+          <stop offset="54%" stopColor="#F0C476" />
+          <stop offset="100%" stopColor="#E4AC5C" />
         </linearGradient>
+        <linearGradient id="tt-floor" x1="0.2" y1="0" x2="0.9" y2="1">
+          <stop offset="0%" stopColor="#E2A855" />
+          <stop offset="100%" stopColor="#CE8C3E" />
+        </linearGradient>
+        {/* Where the lamp actually lands: hot core, long ambient tail. */}
+        <radialGradient id="tt-lamppool" cx="50%" cy="50%">
+          <stop offset="0%" stopColor="#FFF6DE" stopOpacity="0.85" />
+          <stop offset="38%" stopColor="#FDEBC2" stopOpacity="0.4" />
+          <stop offset="100%" stopColor="#FBE0A6" stopOpacity="0" />
+        </radialGradient>
+        {/* The bulb's own bloom. A flat ellipse gave it a hard edge, which is
+            the one thing a light source can never have. */}
+        <radialGradient id="tt-bulb" cx="50%" cy="50%">
+          <stop offset="0%" stopColor="#FFFAEA" stopOpacity="0.92" />
+          <stop offset="26%" stopColor="#FDF0CC" stopOpacity="0.5" />
+          <stop offset="62%" stopColor="#F6D79B" stopOpacity="0.18" />
+          <stop offset="100%" stopColor="#F6D79B" stopOpacity="0" />
+        </radialGradient>
+        {/* Corners of the room fall away — depth by occlusion, not outline. */}
+        <radialGradient id="tt-reveal" cx="52%" cy="46%">
+          <stop offset="56%" stopColor="#3A2410" stopOpacity="0" />
+          <stop offset="100%" stopColor="#3A2410" stopOpacity="0.3" />
+        </radialGradient>
+        {/* Glass is a surface as well as a hole: one raking sheen across it. */}
+        <linearGradient id="tt-sheen" x1="0" y1="0" x2="0.8" y2="1">
+          <stop offset="0%" stopColor="#FFFFFF" stopOpacity="0.3" />
+          <stop offset="42%" stopColor="#FFFFFF" stopOpacity="0.05" />
+          <stop offset="100%" stopColor="#FFFFFF" stopOpacity="0" />
+        </linearGradient>
+        {/* Two spills, not one. The core falls off fast and the ambient carries
+            twice as far; a single gradient reads as a stage spotlight. */}
         <linearGradient id="tt-spill" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#E8A94C" stopOpacity="0.34" />
+          <stop offset="0%" stopColor="#F6D79B" stopOpacity="0.44" />
+          <stop offset="46%" stopColor="#E8A94C" stopOpacity="0.16" />
           <stop offset="100%" stopColor="#E8A94C" stopOpacity="0" />
         </linearGradient>
+        <linearGradient id="tt-spill-wide" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#E8A94C" stopOpacity="0.15" />
+          <stop offset="100%" stopColor="#E8A94C" stopOpacity="0" />
+        </linearGradient>
+        {/* The sash bars are proud of the glass, so the room's light rakes past
+            them and lays a soft band down and to one side of each. */}
+        <linearGradient id="tt-bar-shadow" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0%" stopColor="#5A3A16" stopOpacity="0.26" />
+          <stop offset="100%" stopColor="#5A3A16" stopOpacity="0" />
+        </linearGradient>
+        <linearGradient id="tt-bar-shadow-v" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#5A3A16" stopOpacity="0.22" />
+          <stop offset="100%" stopColor="#5A3A16" stopOpacity="0" />
+        </linearGradient>
+        <clipPath id="tt-pane-clip">
+          <rect x="62" y="44" width="196" height="152" rx="7" />
+        </clipPath>
+        <clipPath id="tt-brick-clip">
+          <rect x="40" y="22" width="240" height="188" rx="12" />
+        </clipPath>
       </defs>
 
-      {/* the glow the whole picture hangs on */}
+      {/* the glow the whole picture hangs on. It breathes slower than the bulb
+          does — a room's ambient light lags the filament that makes it. */}
       <ellipse
         cx="160"
         cy="122"
@@ -109,59 +196,182 @@ function LitWindow({ animate }: { animate: boolean }) {
         ry="128"
         fill="url(#tt-lampglow)"
         className={animate ? 'animate-flicker' : ''}
+        style={animate ? { animationDuration: '11s' } : undefined}
       />
 
-      {/* light spilling onto the pavement */}
-      <path d="M66 206 L254 206 L302 258 L18 258 Z" fill="url(#tt-spill)" />
+      {/* light spilling onto the pavement, and the wedge of shadow the centre
+          sash bar throws into it — the detail that says the light came through
+          a window rather than out of a hole */}
+      <path d="M56 204 L264 204 L316 260 L4 260 Z" fill="url(#tt-spill-wide)" />
+      <path d="M70 204 L250 204 L292 260 L28 260 Z" fill="url(#tt-spill)" />
+      <path d="M156 204 L164 204 L172 260 L148 260 Z" fill="#16292C" opacity="0.16" />
 
       {/* brickwork */}
       <rect x="40" y="22" width="240" height="188" rx="12" fill="#1B3134" />
-      <g stroke="#26454a" strokeWidth="1.2" opacity="0.8">
-        <path d="M40 60h240M40 98h240M40 136h240M40 174h240" />
+      <g clipPath="url(#tt-brick-clip)">
+        <path d={BRICK} stroke="#26454A" strokeWidth="1.1" opacity="0.7" fill="none" />
       </g>
+      {/* the wall near the opening catches the room's light too */}
+      <rect x="40" y="22" width="240" height="188" rx="12" fill="url(#tt-lamppool)" opacity="0.5" />
       <rect x="40" y="22" width="240" height="188" rx="12" fill="none" stroke="#2E5257" strokeWidth="2" />
+      <path d="M42 24h236" stroke="#43666B" strokeWidth="1.4" opacity="0.55" fill="none" strokeLinecap="round" />
 
-      {/* the pane */}
-      <rect x="62" y="44" width="196" height="152" rx="7" fill="url(#tt-pane)" />
+      {/* ── the room, everything clipped to the glass ─────────────────────── */}
+      <g clipPath="url(#tt-pane-clip)">
+        <rect x="62" y="44" width="196" height="112" fill="url(#tt-wall)" />
+        <rect x="62" y="156" width="196" height="40" fill="url(#tt-floor)" />
+        {/* skirting: the one line that turns two rectangles into a room */}
+        <path d="M62 156h196" stroke="#B87F38" strokeWidth="2.4" opacity="0.4" />
+        <path d="M62 154.4h196" stroke="#FBE3B0" strokeWidth="1.2" opacity="0.5" />
+        {/* the lamp's own pool, on the wall behind it and on the floor below */}
+        <ellipse cx="229" cy="118" rx="62" ry="70" fill="url(#tt-lamppool)" />
+        <ellipse cx="226" cy="184" rx="46" ry="14" fill="url(#tt-lamppool)" opacity="0.7" />
 
-      {/* what is happening in there */}
-      <g fill="#1E3A3A">
-        {/* rug */}
-        <ellipse cx="152" cy="180" rx="66" ry="11" opacity="0.2" />
-        {/* couch */}
-        <path d="M78 186v-24a9 9 0 019-9h44a9 9 0 019 9v24z" opacity="0.82" />
-        <path d="M74 186v-14a7 7 0 017-7h2v21zM145 186v-21h2a7 7 0 017 7v14z" opacity="0.7" />
-        {/* the other chair, angled slightly away */}
-        <path d="M196 186v-19a8 8 0 018-8h12a8 8 0 018 8v19z" opacity="0.72" />
-        {/* side table + mug */}
-        <rect x="166" y="168" width="20" height="3" rx="1.5" opacity="0.66" />
-        <rect x="174" y="171" width="4" height="15" rx="1.5" opacity="0.66" />
-        <path d="M170 162h9v5a2.5 2.5 0 01-2.5 2.5h-4A2.5 2.5 0 01170 167zm9 1.2h2a2 2 0 010 4h-2z" opacity="0.75" />
-        {/* floor lamp */}
-        <rect x="228" y="120" width="3" height="66" rx="1.5" opacity="0.8" />
-        <path d="M214 118l6-17h22l6 17z" opacity="0.86" />
+        {/* Frames on the wall, none of them hung true and no two the same size —
+            a matched set reads as wallpaper. This is the wall by the door that
+            the whole game is about, so it is worth the nodes. Each is a dark
+            moulding around a paler mat, which is what makes it a picture rather
+            than a rectangle. */}
+        <g opacity="0.42">
+          <g transform="rotate(-1.6 92 71)">
+            <rect x="81" y="61" width="22" height="17" rx="1" fill="#1E3A3A" />
+            <rect x="83.4" y="63.4" width="17.2" height="12.2" fill="#FBE6BB" opacity="0.4" />
+          </g>
+          <g transform="rotate(1.3 118 66)">
+            <rect x="111" y="59" width="14" height="11.5" rx="0.9" fill="#1E3A3A" />
+            <rect x="113" y="61" width="10" height="7.5" fill="#FBE6BB" opacity="0.34" />
+          </g>
+          <g transform="rotate(-0.6 116 87)">
+            <rect x="109" y="80" width="17" height="13" rx="0.9" fill="#1E3A3A" />
+            <rect x="111" y="82" width="13" height="9" fill="#FBE6BB" opacity="0.37" />
+          </g>
+        </g>
+
+        {/* what is happening in there. Opacity is depth: things further into the
+            room sit in more haze, things by the glass are nearly solid. */}
+        <g fill="#1E3A3A">
+          {/* rug — an edge that wobbles, laid flat under both chairs */}
+          <path
+            d="M86 180q30-9 66-8t66 9q-30 10-66 9.5T86 180z"
+            opacity="0.17"
+          />
+          {/* couch: back, seat, both arms, and feet that lift it off the floor */}
+          <path d="M80 179v-23a8 8 0 018-8h50a8 8 0 018 8v23z" opacity="0.8" />
+          <path d="M76 183v-11a6 6 0 016-6h62a6 6 0 016 6v11z" opacity="0.88" />
+          <path d="M70 183v-15a6 6 0 016-6h4v21zM144 162h4a6 6 0 016 6v15h-10z" opacity="0.72" />
+          <path d="M73 183h4v5h-4zM147 183h4v5h-4z" opacity="0.55" />
+          {/* the other chair, angled slightly away from the couch */}
+          <path d="M196 182v-21a8 8 0 018-8h12a8 8 0 018 8v21z" opacity="0.7" />
+          <path d="M193 184v-9a5 5 0 015-5h20a5 5 0 015 5v9z" opacity="0.8" />
+          {/* side table, and the mug somebody has not finished */}
+          <path d="M164 167h24l-1.5 3h-21z" opacity="0.62" />
+          <path d="M173 170h6l1 16h-8z" opacity="0.62" />
+          <path d="M170 160h9v5a2.5 2.5 0 01-2.5 2.5h-4A2.5 2.5 0 01170 165zm9 1.2h2a2 2 0 010 4h-2z" opacity="0.74" />
+        </g>
+
+        {/* The floor lamp, in the only order that works: the glow first, then the
+            silhouette on top of it. Painted the other way round the halo washes
+            out the shade it is supposed to be coming out of. */}
+        <ellipse cx="229.5" cy="132" rx="40" ry="34" fill="url(#tt-bulb)" className={animate ? 'animate-flicker' : ''} />
+        <g fill="#1E3A3A">
+          <path d="M228 120h3.4v66H228z" opacity="0.78" />
+          <path d="M221 186h17.4l-1 3H222z" opacity="0.7" />
+          <path d="M214 118l6-17h22l6 17z" opacity="0.86" />
+        </g>
+        {/* the filament, just under the lip of the shade */}
+        <ellipse cx="229.5" cy="120.5" rx="7" ry="4.5" fill="#FFF9EA" opacity="0.75" />
+        <circle cx="229.5" cy="120" r="2.6" fill="#FFFDF4" />
+
+        {/* the lit edges. Everything faces the lamp on the right, so that is the
+            side that catches — this is the whole difference between furniture
+            and stickers. */}
+        <g fill="none" stroke="#FCE9BC" strokeLinecap="round">
+          <path d="M88 148h50a8 8 0 018 8" strokeWidth="1.3" opacity="0.42" />
+          <path d="M148 162a6 6 0 016 6v15" strokeWidth="1.2" opacity="0.34" />
+          <path d="M224 153a8 8 0 018 8v21" strokeWidth="1.2" opacity="0.36" />
+          <path d="M231.4 122v64" strokeWidth="1" opacity="0.38" />
+          <path d="M242 101l6 17" strokeWidth="1.1" opacity="0.45" />
+        </g>
+
+        {/* A curtain gathered at the right jamb. It hangs nearer the glass than
+            the lamp does, so it overlaps the lamp — depth here is occlusion,
+            never an outline. Its left face is the one turned toward the bulb. */}
+        <g>
+          <path d="M258 44v152h-13c4-25 5-50 3-76s-1-51 3-76z" fill="#1E3A3A" opacity="0.8" />
+          <path
+            d="M245 196c4-25 5-50 3-76s-1-51 3-76"
+            fill="none"
+            stroke="#FCE9BC"
+            strokeWidth="0.9"
+            opacity="0.26"
+          />
+          <path d="M252 45c3 25 2 51 1 77s0 49 2 74" fill="none" stroke="#0F2124" strokeWidth="0.9" opacity="0.4" />
+        </g>
+
+        {/* Plant on the interior sill: small, tucked into the corner where the
+            glass meets the ledge, and scaled by an outer group because the float
+            animation writes `transform` and would clobber an attribute here. */}
+        <g transform="translate(22 58) scale(0.68)">
+          <g className={animate ? 'animate-float' : ''} style={{ transformOrigin: '96px 190px' }}>
+            <ellipse cx="93" cy="191.5" rx="16" ry="3" fill="#8B5A22" opacity="0.3" />
+            <path d="M92 166c-9-4-13-13-11-22 9 1 15 8 15 17z" fill="#4E7350" opacity="0.94" />
+            <path d="M100 164c8-5 11-14 8-23-9 2-14 10-13 19z" fill="#7BA078" opacity="0.96" />
+            <path d="M103 172c7-2 11-8 11-15-7 1-11 6-12 12z" fill="#5F8460" opacity="0.9" />
+            <path d="M104 141c-2 7-6 12-9 14" stroke="#C9E0BE" strokeWidth="1.4" fill="none" opacity="0.5" strokeLinecap="round" />
+            <path d="M96 170c-1-12-1-20 0-26" stroke="#4E7350" strokeWidth="2" fill="none" strokeLinecap="round" />
+            <path d="M87 173h18l-2.4 15H89.4z" fill="#A8523F" />
+            <path d="M99 173h6l-2.4 15h-4z" fill="#C2634F" opacity="0.85" />
+            <rect x="85.4" y="170" width="21.2" height="4" rx="1.8" fill="#B85A44" />
+            <path d="M104.2 171h2.4v2h-2.4z" fill="#E1897A" opacity="0.7" />
+          </g>
+        </g>
+
+        {/* sash-bar shadows laid on the glass, then the sheen, then the room's
+            own falling-away corners */}
+        <rect x="163" y="44" width="9" height="152" fill="url(#tt-bar-shadow)" />
+        <rect x="62" y="123" width="196" height="9" fill="url(#tt-bar-shadow-v)" />
+        <path d="M62 196 L62 128 L156 44 L206 44 L74 196 Z" fill="url(#tt-sheen)" />
+        <rect x="62" y="44" width="196" height="152" fill="url(#tt-reveal)" />
       </g>
-      {/* the bulb itself */}
-      <circle cx="229.5" cy="120" r="15" fill="#FDF3D8" opacity="0.55" className={animate ? 'animate-flicker' : ''} />
-      <circle cx="229.5" cy="118" r="4.6" fill="#FFF9EA" />
 
-      {/* plant on the sill */}
-      <g className={animate ? 'animate-float' : ''} style={{ transformOrigin: '96px 190px' }}>
-        <path d="M92 168c-9-4-13-13-11-22 9 1 15 8 15 17z" fill="#5F8460" opacity="0.92" />
-        <path d="M100 166c8-5 11-14 8-23-9 2-14 10-13 19z" fill="#8FAF8B" opacity="0.95" />
-        <path d="M96 172c-1-12-1-20 0-26" stroke="#5F8460" strokeWidth="2" fill="none" strokeLinecap="round" />
-        <path d="M87 172h18l-2.4 14H89.4z" fill="#C2634F" />
-        <rect x="85.4" y="169" width="21.2" height="4" rx="1.8" fill="#A8523F" />
+      {/* frame. The sash bar's right face is turned toward the lamp, so it gets
+          a hairline of light; its left face does not. */}
+      <g fill="none" strokeLinejoin="round">
+        <rect x="62" y="44" width="196" height="152" rx="7" stroke="#132427" strokeWidth="6.5" />
+        <path d="M160 44v152M62 120h196" stroke="#132427" strokeWidth="6" />
+        <path d="M163.4 48v144" stroke="#F3D296" strokeWidth="0.9" opacity="0.32" />
+        <path d="M66 123.4h188" stroke="#F3D296" strokeWidth="0.9" opacity="0.24" />
+        <rect x="59" y="41" width="202" height="158" rx="9" stroke="#0D1B1E" strokeWidth="2" opacity="0.75" />
+        <path d="M61 42.5h198" stroke="#3D6A70" strokeWidth="1.2" opacity="0.5" strokeLinecap="round" />
       </g>
 
-      {/* frame */}
-      <g stroke="#132427" strokeWidth="6" fill="none" strokeLinejoin="round">
-        <rect x="62" y="44" width="196" height="152" rx="7" />
-        <path d="M160 44v152M62 120h196" />
-      </g>
-      {/* sill */}
-      <rect x="50" y="194" width="220" height="12" rx="5" fill="#2E5257" />
-      <rect x="50" y="194" width="220" height="4" rx="2" fill="#3D6a70" opacity="0.7" />
+      {/* sill. A top face the light lands on, a front face it does not, and a
+          drip edge under that — three tones is the fewest that reads as an
+          object with a thickness instead of a drawn line. */}
+      <path d="M48 192h224l4 6H44z" fill="#41707A" />
+      <path d="M62 192h196l1.6 2.4H60.6z" fill="#F6D79B" opacity="0.32" />
+      <rect x="44" y="198" width="232" height="8" rx="1.5" fill="#2A4B50" />
+      <path d="M44 206h232l-5 4H49z" fill="#152A2E" opacity="0.85" />
+
+      {animate ? (
+        <g className="juice-only" aria-hidden>
+          {DUST.map((d, i) => (
+            <circle
+              key={i}
+              cx={d.x}
+              cy={d.y}
+              r={d.r}
+              fill="#F6D79B"
+              style={{
+                animation: `dust-drift ${d.dur}s linear ${d.delay}s infinite`,
+                ['--dust-x' as string]: `${d.dx}px`,
+                ['--dust-y' as string]: `${d.dy}px`,
+                ['--dust-peak' as string]: '0.55',
+              }}
+            />
+          ))}
+        </g>
+      ) : null}
     </svg>
   );
 }
@@ -372,9 +582,11 @@ function LegacyStrip({ points, runs, spent }: { points: number; runs: number; sp
   return (
     <section
       aria-label="Legacy carried from earlier runs"
-      className="mt-8 w-full rounded-[14px] px-4 py-3.5 text-left"
+      // `backgroundColor`, not `background`: the shorthand would wipe the wash
+      // that .lamp-wash puts on top of it.
+      className="lamp-wash mt-8 w-full rounded-[14px] px-4 py-3.5 text-left"
       style={{
-        background: 'color-mix(in oklab, var(--color-paper) 8%, transparent)',
+        backgroundColor: 'color-mix(in oklab, var(--color-paper) 8%, transparent)',
         border: '1px solid color-mix(in oklab, var(--color-paper) 18%, transparent)',
       }}
     >
@@ -528,7 +740,10 @@ function SetupStep({ animate, onBack }: { animate: boolean; onBack: () => void }
                   className="card-warm text-left px-3 py-2.5 transition hover:brightness-[1.03] focus-visible:outline-2 focus-visible:outline-offset-2"
                   style={{
                     borderColor: on ? m.color : 'color-mix(in oklab, var(--color-ink) 13%, transparent)',
-                    boxShadow: on ? `0 0 0 2px color-mix(in oklab, ${m.color} 55%, transparent)` : 'var(--shadow-soft)',
+                    // A chosen card is picked up off the table, not just outlined.
+                    boxShadow: on
+                      ? `0 0 0 2px color-mix(in oklab, ${m.color} 55%, transparent), var(--shadow-lifted)`
+                      : 'var(--shadow-soft)',
                   }}
                 >
                   <div className="flex items-start gap-2">
@@ -596,7 +811,9 @@ function SetupStep({ animate, onBack }: { animate: boolean; onBack: () => void }
                   className="card-warm text-left px-3 py-2.5 transition hover:brightness-[1.03] focus-visible:outline-2 focus-visible:outline-offset-2"
                   style={{
                     borderColor: on ? accent : 'color-mix(in oklab, var(--color-ink) 13%, transparent)',
-                    boxShadow: on ? `0 0 0 2px color-mix(in oklab, ${accent} 55%, transparent)` : 'var(--shadow-soft)',
+                    boxShadow: on
+                      ? `0 0 0 2px color-mix(in oklab, ${accent} 55%, transparent), var(--shadow-lifted)`
+                      : 'var(--shadow-soft)',
                   }}
                 >
                   <div className="display text-[1rem] leading-tight text-ink">{d.name}</div>
