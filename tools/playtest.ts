@@ -14,7 +14,8 @@
 import { writeFileSync } from 'node:fs';
 import { EventBus } from '../src/sim/bus';
 import { Game, capacity, dailyExpenses } from '../src/sim/engine';
-import { activeTherapists } from '../src/sim/eventsys';
+import { activeTherapists, meetsRequirement } from '../src/sim/eventsys';
+import { UPGRADES } from '../src/content';
 import { Recorder, replayStamp, serializeReplay } from '../src/sim/replay';
 import { CONDITION_LABELS, SEVERITY_LABELS } from '../src/sim/balance';
 import { formatMoney } from '../src/sim/util';
@@ -58,11 +59,29 @@ function dispatch(action: GameAction): void {
 console.log(bold(`\n  ${s.practiceName}`));
 console.log(dim(`  seed ${seed} · ${difficulty} · ${days} days\n`));
 
+/** Rooms already introduced this session, so a group prints one header, not six. */
+const roomsAnnounced = new Set<string>();
+let firstRoomEver = true;
+
 bus.on('SESSION_COMPLETED', ({ result }) => {
   const c = s.clients.find((x) => x.id === result.clientId);
   const t = s.therapists.find((x) => x.id === result.therapistId);
   if (!c || !t) return;
   const notable = result.breakthrough || result.regression || result.cured || result.grade === 'poor';
+
+  // A group is one hour that moved several people. Print the room once, then let
+  // the members below report themselves exactly as an individual hour would.
+  if (result.group && !roomsAnnounced.has(result.sessionId) && (notable || verbose || firstRoomEver)) {
+    roomsAnnounced.add(result.sessionId);
+    console.log(
+      `  ${dim(`d${s.day}`)} ${plum(`the group (${result.group.size})`)} · ${result.group.handles.join(', ')} ` +
+        `· ${t.name.split(' ')[0]} · ${result.focus} ` +
+        dim(`(${result.group.totalEnergyCost} energy, paced by ${result.group.handles[0] === c.handle ? c.handle : s.clients.find((x) => x.id === result.group!.pacedByClientId)?.handle ?? '—'})`),
+    );
+    if (firstRoomEver) console.log(dim('        The first group the practice has ever run.'));
+    firstRoomEver = false;
+  }
+
   if (!notable && !verbose) return;
   const tag = result.breakthrough
     ? sage('breakthrough')
@@ -165,6 +184,17 @@ while (s.day <= days && !s.ended && guard++ < days * 5000) {
     }
     if (s.flags.philosophyAvailable && !s.philosophy) {
       dispatch({ type: 'CHOOSE_PHILOSOPHY', philosophy: 'trauma_informed' });
+    }
+    // Buy the practice out one upgrade at a time, cheapest first, keeping a
+    // fortnight of runway. Without this the narrated run never reaches a
+    // certification, so the whole couples/family/group half of the game was
+    // invisible to the tool that exists to make design problems visible.
+    for (const u of [...UPGRADES].sort((a, b) => a.cost - b.cost)) {
+      if (s.upgrades.includes(u.id) || !meetsRequirement(s, u.requires)) continue;
+      if (s.cash - u.cost < dailyExpenses(s) * 14) continue;
+      dispatch({ type: 'BUY_UPGRADE', upgradeId: u.id });
+      console.log(amber(`  d${s.day} ⌂ Bought ${u.name}.`));
+      break;
     }
     dispatch({ type: 'AUTOFILL_SCHEDULE' });
     dispatch({ type: 'START_DAY' });

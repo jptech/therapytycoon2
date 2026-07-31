@@ -53,39 +53,68 @@ blind to. See [Pacing](#pacing-the-assertions-the-statistics-cannot-make).
 
 | | Cozy | Standard | Challenge |
 | --- | --- | --- | --- |
-| Collapsed | **0 / 40** | 2 / 40 | 17 / 40 |
-| Fully accredited | 39 / 40 | 32 / 40 | 9 / 40 |
-| Final cash | $125,847 | $44,354 | $155 |
-| Reputation | 84.2 | 83.6 | 72.5 |
-| Community trust | 88.8 | 89.9 | 77.6 |
-| Practice level | 9 | 9 (p10: 8) | 8 (p10: 6) |
-| Therapists | 8 | 8 (p10: 3) | 4 (p10: 2) |
-| Active clients | 59 | 57 (p10: 31) | 32 |
-| Avg morale | 81.6 | 79.9 | 78.0 |
-| Cures | 149 | 140 | 73 |
-| Complex cures | 69 | 68 | 33 |
-| Dropouts | 0 | 0 | 0 (p90: 48) |
-| Burnouts | 3 | 4 | 2 |
-| Upgrades owned | 26 / 26 | 22 / 26 (p10: 4) | 4 / 26 |
+| Collapsed | **0 / 40** | 2 / 40 | 13 / 40 |
+| Fully accredited | 39 / 40 | 29 / 40 | 9 / 40 |
+| Final cash | $147,354 | $47,133 | $2,900 |
+| Reputation | 84.3 | 83.6 | 68.8 |
+| Community trust | 89.1 | 89.0 | 77.9 |
+| Practice level | 9 | 9 (p10: 8) | 7 (p10: 6) |
+| Therapists | 8 | 8 (p10: 3) | 3 (p10: 2) |
+| Active clients | 59 | 57 (p10: 31) | 31 |
+| Avg morale | 81.2 | 79.8 | 77.6 |
+| Cures | 161 | 146 | 72 |
+| Complex cures | 72 | 76 | 36 |
+| Dropouts | 0 | 0 | 1 (p90: 54) |
+| Burnouts | 2 | 3 | 2 |
+| Upgrades owned | 26 / 26 | 23 / 26 (p10: 4) | 4 / 26 |
 | Campaign stages | 5 / 5 | 5 / 5 (p10: 2) | 2 / 5 |
 
 Session grades:
 
 | Grade | Cozy | Standard | Challenge |
 | --- | --- | --- | --- |
-| Breakthrough | 3.8% | 1.9% | 1.0% |
-| Excellent | 38.2% | 30.0% | 23.8% |
-| Good | 55.5% | 64.2% | 70.9% |
-| Mixed | 2.5% | 3.9% | 4.3% |
+| Breakthrough | 3.3% | 1.8% | 0.8% |
+| Excellent | 33.4% | 28.7% | 22.8% |
+| Good | 60.1% | 65.6% | 71.9% |
+| Mixed | 3.1% | 3.8% | 4.4% |
 | Poor | 0.0% | 0.0% | 0.0% |
 
 Quality drift, early (≤ day 40) → late (> day 120):
 
 | | Early | Late | Late p10–p90 |
 | --- | --- | --- | --- |
-| Cozy | 0.709 | 0.788 | 0.77 – 0.81 |
-| Standard | 0.706 | 0.770 | 0.75 – 0.79 |
-| Challenge | 0.699 | 0.761 | 0.74 – 0.78 |
+| Cozy | 0.709 | 0.780 | 0.76 – 0.80 |
+| Standard | 0.705 | 0.767 | 0.74 – 0.79 |
+| Challenge | 0.699 | 0.758 | 0.73 – 0.78 |
+
+### What the session types moved
+
+Couples, family and group sessions became reachable in the same change these numbers were taken
+after. The swing, measured on the same machine with the same 40×200 sweep before and after:
+
+| | Cozy | Standard | Challenge |
+| --- | --- | --- | --- |
+| Final cash | $125,847 → **$147,354** | $44,354 → $47,133 | $155 → $2,900 |
+| Cures | 149 → **161** | 140 → 146 | 73 → 72 |
+| Complex cures | 69 → 72 | 68 → **76** | 33 → 36 |
+| Collapsed | 0/40 → 0/40 | 2/40 → 2/40 | 17/40 → **13/40** |
+| Accredited | 39/40 → 39/40 | 32/40 → **29/40** | 9/40 → 9/40 |
+| Excellent sessions | 38.2% → **33.4%** | 30.0% → 28.7% | 23.8% → 22.8% |
+
+Read that as: **Cozy gets meaningfully richer, Standard is flat, Challenge is slightly kinder.**
+Cozy owns every certification in every run, so it takes the full 1.5×/1.7× specialty fee and the
+group room's throughput; Standard owns them about half the time; Challenge rarely gets past the
+couples certification. Nothing is degenerate — the harness still prints *"Late-game still has
+spread"* on all three, and the shift toward "good" at the expense of "excellent" is the group
+crowd penalty doing exactly what it is for.
+
+Two smaller structural notes on those numbers:
+
+- **"Sessions run" now counts hours, not client-hours.** A group of six is one session. Cozy's
+  session count falls ~8% while its cures rise, which is the intended trade and not a regression.
+- **Burnouts fall on every difficulty** (Cozy 3.1 → 1.9 mean). Strain accrues per *session over a
+  comfortable day*, and a group replaces up to six of them with one. That is a real benefit of
+  running groups and it is meant to be felt.
 
 Quality rises meaningfully across a run — mastery is real — while retaining spread, so no
 difficulty ever reads as solved.
@@ -114,7 +143,24 @@ The three difficulties are three genuinely different games rather than three mul
 
 - **Cozy owns every upgrade in every run**, so its late economy has no meaningful choices left.
   That is arguably correct for the mode, but the upgrade tree could use a genuinely expensive
-  top tier that even Cozy has to choose between.
+  top tier that even Cozy has to choose between. The specialty fees have made this *more* true,
+  not less: Cozy's median now finishes on $147k.
+
+- **The auto-scheduler's energy reserve is defended one session late.** `bestMatch` compares the
+  reserve against what is *already* committed, not against the hour it is about to book, so the
+  floor is breached by one session per therapist per day. Closing that gap is a two-character
+  change and it is deliberately not made: it books roughly one fewer session a day across the
+  board, halves burnouts, and takes Challenge from 17/40 collapses to 10/40 — measured, on the
+  same sweep. That is a difficulty retune with a real argument on both sides, and it should be
+  made on purpose rather than as a side effect of something else. The number to move is
+  `SCHEDULER_ENERGY_ESTIMATE` and the line is commented where it lives, in `src/sim/scheduler.ts`.
+
+- **The couples certification is close to a pure buy.** $2,000 at practice level 2 for 11% of
+  referrals at 1.5× the fee and 1.12× progress. The counterweights are real — 1.18× energy and a
+  0.82× rapport multiplier that bites hardest in the Trust chapter, where rapport gates progress —
+  but they are gentle, and raising the energy cost to 1.32× measurably changed nothing on
+  Challenge, which means most struggling practices never buy it at all. If specialty work ever
+  starts to feel mandatory, `SESSION_TYPE_RATE_MULT` is the honest lever.
 
 ## The floor: what bad play actually costs
 

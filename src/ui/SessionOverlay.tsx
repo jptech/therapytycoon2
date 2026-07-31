@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { CONDITION_LABELS, FOCUSES, SEVERITY_LABELS } from '../sim/balance';
 import { rapportLabel, stabilityLabel } from '../sim/scheduler';
-import { CHAPTER_LABEL } from '../sim/session';
+import { CHAPTER_LABEL, sessionMemberClients } from '../sim/session';
 import { modalityById } from '../content';
-import type { GameState, PortraitSeed, SessionFocus, TechniqueCard } from '../sim/types';
+import type { GameState, PortraitSeed, SessionFocus, SessionType, TechniqueCard } from '../sim/types';
 import { useDispatch, useSim, useSimShallow } from '../store';
 import { Chip, Modal } from './primitives';
 import { Portrait } from './Portrait';
+import { SESSION_TYPE_COLOR, SessionTypeChip, andList, countWord, roomTitle } from './rooms';
 
 /**
  * The decision beat — fired mid-session, roughly 55% of the way through the
@@ -68,6 +69,13 @@ interface RoomContext {
   cards: TechniqueCard[];
   focus: SessionFocus;
   day: number;
+  sessionType: SessionType;
+  /** Cases in the room. 1 for everything but a group. */
+  roomSize: number;
+  /** Everyone else in the room, `|`-joined so the shallow compare holds. */
+  roomOthers: string;
+  /** Companions on this case record — the other half of a couple, the family. */
+  partners: string;
   hasClient: boolean;
   clientPortrait?: PortraitSeed;
   clientHandle: string;
@@ -98,11 +106,21 @@ function selectRoom(s: GameState): RoomContext | null {
   const session = s.schedule.find((x) => x.id === pending.sessionId);
   const latest = c?.story[0];
   const isToday = !!latest && latest.day === s.day;
+  // A group's decision beat belongs to the pacer, so `pending.clientId` is one
+  // chair of several. The rest of the room is named rather than left implied.
+  const members = session ? sessionMemberClients(s, session) : [];
   return {
     instanceId: pending.instanceId,
     cards: pending.techniqueCards,
     focus: session?.focus ?? 'build_skills',
     day: s.day,
+    sessionType: session?.type ?? c?.sessionType ?? 'individual',
+    roomSize: Math.max(1, members.length),
+    roomOthers: members
+      .filter((m) => m.id !== pending.clientId)
+      .map((m) => m.handle)
+      .join('|'),
+    partners: (c?.partnerHandles ?? []).join('|'),
     hasClient: !!c,
     clientPortrait: c?.portrait,
     clientHandle: c?.handle ?? 'Your client',
@@ -202,6 +220,8 @@ export function SessionOverlay() {
 
   const focusProfile = FOCUSES[ctx.focus];
   const whisper = cards[activeIndex]?.flavor ?? cards[focusIndex]?.flavor ?? '';
+  const others = ctx.roomOthers ? ctx.roomOthers.split('|') : [];
+  const partners = ctx.partners ? ctx.partners.split('|') : [];
 
   return (
     <Modal width={764} dismissable={false} labelledBy="session-overlay-title">
@@ -236,6 +256,18 @@ export function SessionOverlay() {
                 <div className="text-[0.71rem] text-ink-soft leading-tight truncate">
                   {ctx.clientSeverity} {ctx.clientCondition}
                   <span className="text-ink-faint"> · {ctx.clientChapter}</span>
+                </div>
+              ) : null}
+              {others.length || partners.length ? (
+                <div
+                  className="text-[0.68rem] leading-tight truncate"
+                  style={{
+                    color: `color-mix(in oklab, ${SESSION_TYPE_COLOR[ctx.sessionType]} 78%, var(--color-ink))`,
+                  }}
+                  title={andList(others.length ? others : partners)}
+                >
+                  <span aria-hidden>{others.length ? '◎' : '🤝'}</span> with{' '}
+                  {andList(others.length ? others : partners)}
                 </div>
               ) : null}
             </div>
@@ -288,6 +320,16 @@ export function SessionOverlay() {
             <Chip color={focusProfile.color}>
               {focusProfile.icon} {focusProfile.name}
             </Chip>
+            {ctx.roomSize > 1 ? (
+              <Chip
+                color={SESSION_TYPE_COLOR.group}
+                title={`${ctx.clientHandle} and ${andList(others)} share this hour.`}
+              >
+                ◎ {roomTitle('group', ctx.roomSize)}
+              </Chip>
+            ) : (
+              <SessionTypeChip type={ctx.sessionType} partners={partners} />
+            )}
             <span className="text-[0.73rem] text-ink-faint leading-snug min-w-0">{focusProfile.blurb}</span>
           </div>
           <p className="text-[0.85rem] text-ink-soft leading-[1.5] mt-1.5 italic">
@@ -296,6 +338,20 @@ export function SessionOverlay() {
             </span>
             {ctx.broughtIn}
           </p>
+          {/* In a circle the cards were built for one person — the sim says so on
+              every card, and this says why, before the player reads them. */}
+          {ctx.roomSize > 1 ? (
+            <p
+              className="text-[0.75rem] leading-snug mt-1"
+              style={{
+                color: `color-mix(in oklab, ${SESSION_TYPE_COLOR.group} 76%, var(--color-ink))`,
+              }}
+            >
+              You are choosing for <strong>{ctx.clientHandle}</strong>, the least steady person here —
+              a room does not go anywhere the shakiest person in it cannot follow. The hour lands on
+              all {countWord(ctx.roomSize)} of them.
+            </p>
+          ) : null}
         </div>
       </div>
 

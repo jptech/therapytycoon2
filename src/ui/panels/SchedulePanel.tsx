@@ -1,8 +1,11 @@
-import { Fragment, useState } from 'react';
+import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   CONDITION_LABELS,
   DAY_START_MINUTE,
   FOCUSES,
+  GROUP_MAX_MEMBERS,
+  GROUP_MIN_MEMBERS,
   SESSION_MINUTES,
   SEVERITY_LABELS,
   SLOTS_PER_DAY,
@@ -21,8 +24,10 @@ import {
   focusSafety,
   riskBadge,
   sessionsForTherapist,
+  stabilityLabel,
   suggestFocus,
 } from '../../sim/scheduler';
+import { sessionMemberClients, sessionPacer } from '../../sim/session';
 import type {
   Client,
   GameState,
@@ -33,6 +38,15 @@ import type {
 } from '../../sim/types';
 import { formatClock, formatMoney } from '../../sim/util';
 import { Portrait } from '../Portrait';
+import { placeAnchored } from '../anchor';
+import {
+  SESSION_TYPE_COLOR,
+  SessionTypeChip,
+  andList,
+  countWord,
+  joinHandles,
+  roomTitle,
+} from '../rooms';
 import {
   Button,
   Chip,
@@ -71,7 +85,9 @@ function scheduleDigest(s: GameState): string {
     d += `~${t.id}:${t.status}:${t.statusDays}:${Math.round(t.energy)}:${t.maxEnergy}`;
   }
   for (const x of s.schedule) {
-    d += `#${x.id}:${x.therapistId}:${x.clientId}:${x.slot}:${x.focus}:${x.status}`;
+    // memberIds is part of the digest: seating one more person into a room
+    // changes nothing else about the session, and the cell has to redraw.
+    d += `#${x.id}:${x.therapistId}:${(x.memberIds ?? [x.clientId]).join('+')}:${x.slot}:${x.focus}:${x.status}`;
   }
   for (const c of s.clients) {
     if (c.status !== 'active') continue;
@@ -135,12 +151,6 @@ function fitColor(fit: number): string {
   if (fit >= 0.75) return 'var(--color-sage-deep)';
   if (fit >= 0.5) return 'var(--color-amber-deep)';
   return 'var(--color-ink-faint)';
-}
-
-function joinHandles(handles: string[]): string {
-  if (handles.length === 1) return handles[0];
-  if (handles.length === 2) return `${handles[0]} and ${handles[1]}`;
-  return `${handles.slice(0, 2).join(', ')} and ${handles.length - 2} more`;
 }
 
 function slotClock(slot: number): string {
@@ -426,6 +436,9 @@ function EnergyForecast({ state, therapist }: { state: GameState; therapist: The
 // Grid cell
 // ─────────────────────────────────────────────────────────────────────────────
 
+/** One height for every state of a cell, so the grid never jumps. */
+const CELL_H = 'h-[5.9rem]';
+
 function Cell({
   state,
   therapist,
@@ -444,11 +457,14 @@ function Cell({
   const session = state.schedule.find(
     (s) => s.therapistId === therapist.id && s.slot === slot && s.status !== 'cancelled',
   );
-  const client = session ? state.clients.find((c) => c.id === session.clientId) : undefined;
+  // Never `session.clientId`: a group hour holds several people and a cure or a
+  // dropout can empty one of the chairs mid-day. `sessionMemberClients` is the
+  // sim's own seam and it silently drops anyone who has left.
+  const members = session ? sessionMemberClients(state, session) : [];
 
   const frame = 'border-b hairline p-1';
 
-  if (!session || !client) {
+  if (!session || members.length === 0) {
     return (
       <div className={frame}>
         <button
@@ -456,7 +472,7 @@ function Cell({
           onClick={onPick}
           disabled={locked}
           aria-label={`Book ${therapist.name} at ${slotClock(slot)}`}
-          className={`w-full h-[5.2rem] rounded-[10px] grid place-items-center text-[0.75rem] transition ${
+          className={`w-full ${CELL_H} rounded-[10px] grid place-items-center text-[0.75rem] transition ${
             locked
               ? 'text-ink-faint/40 cursor-not-allowed'
               : 'text-ink-faint hover:text-ink hover:bg-[color-mix(in_oklab,var(--color-amber)_16%,transparent)]'
@@ -471,48 +487,87 @@ function Cell({
     );
   }
 
+  const room = describeRoom(state, session, members);
+
   if (session.status === 'active') {
     return (
       <div className={frame}>
-        <LiveCell sessionId={session.id} handle={client.handle} focus={session.focus} />
+        <LiveCell sessionId={session.id} room={room} focus={session.focus} />
       </div>
     );
   }
 
   if (session.status === 'done' || session.status === 'missed') {
-    const grade = session.result?.grade;
     return (
       <div className={frame}>
-        <div className="w-full h-[5.2rem] rounded-[10px] paper-flat px-2 py-1.5 flex flex-col justify-between opacity-70">
-          <div className="text-[0.78rem] font-bold text-ink truncate">{client.handle}</div>
-          <div className="text-[0.66rem] text-ink-faint">
-            {session.status === 'missed' ? 'Never happened' : `${FOCUSES[session.focus].icon} ${FOCUSES[session.focus].name}`}
-          </div>
-          <div
-            className="text-[0.7rem] font-extrabold uppercase tracking-[0.06em]"
-            style={{ color: grade ? GRADE_COLOR[grade] : 'var(--color-ink-faint)' }}
-          >
-            {grade ? GRADE_WORD[grade] : session.status === 'missed' ? '—' : 'Done'}
-          </div>
-        </div>
+        <DoneCell session={session} room={room} />
       </div>
     );
   }
 
   return (
     <div className={frame}>
-      <BookedCell state={state} session={session} client={client} calm={calm} />
+      <BookedCell state={state} session={session} room={room} calm={calm} />
     </div>
   );
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// What kind of hour is this?
+//
+// Every cell state needs the same four facts, and working them out twice is how
+// the grid and the roster end up disagreeing about who is in the room.
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface Room {
+  members: Client[];
+  /** More than one case in the room — a group, not a couple. */
+  isRoom: boolean;
+  /** Whoever the hour will move at the pace of. Never undefined: rooms aren't empty. */
+  pacer: Client;
+  /** The cell's first line. */
+  title: string;
+  /** The cell's second line: who else is in the room, or the presenting problem. */
+  sub: string;
+  /** Partners named on the case record — a couples or family case's other people. */
+  partners: string[];
+}
+
+function describeRoom(state: GameState, session: ScheduledSession, members: Client[]): Room {
+  const pacer = sessionPacer(state, session) ?? members[0];
+  const isRoom = members.length > 1;
+  const first = members[0];
+  const partners = first.partnerHandles ?? [];
+
+  if (isRoom) {
+    return {
+      members,
+      isRoom,
+      pacer,
+      title: roomTitle('group', members.length),
+      sub: joinHandles(members.map((m) => m.handle)),
+      partners: [],
+    };
+  }
+  return {
+    members,
+    isRoom,
+    pacer,
+    title: first.handle,
+    sub: partners.length
+      ? `with ${andList(partners)}`
+      : CONDITION_LABELS[first.condition],
+    partners,
+  };
+}
+
 /** Subscribes to its own session progress so the ring moves without redrawing the grid. */
-function LiveCell({ sessionId, handle, focus }: { sessionId: string; handle: string; focus: SessionFocus }) {
+function LiveCell({ sessionId, room, focus }: { sessionId: string; room: Room; focus: SessionFocus }) {
   const t = useSim((s) => s.schedule.find((x) => x.id === sessionId)?.t ?? 0);
   const minutesLeft = Math.max(0, Math.ceil((1 - t) * SESSION_MINUTES));
   return (
     <div
-      className="w-full h-[5.2rem] rounded-[10px] px-2 py-1.5 flex items-center gap-2"
+      className={`w-full ${CELL_H} rounded-[10px] px-2 py-1.5 flex items-center gap-2`}
       style={{
         background: 'color-mix(in oklab, var(--color-amber) 15%, var(--color-paper))',
         border: '1px solid color-mix(in oklab, var(--color-amber-deep) 45%, transparent)',
@@ -524,10 +579,62 @@ function LiveCell({ sessionId, handle, focus }: { sessionId: string; handle: str
         </span>
       </ProgressRing>
       <div className="min-w-0">
-        <div className="text-[0.78rem] font-bold text-ink truncate">{handle}</div>
-        <div className="text-[0.64rem] text-ink-soft leading-tight">In the room</div>
+        <div className="text-[0.78rem] font-bold text-ink truncate">{room.title}</div>
+        <div className="text-[0.62rem] text-ink-soft leading-tight truncate">
+          {room.isRoom || room.partners.length ? room.sub : 'In the room'}
+        </div>
         <div className="tabular text-[0.64rem] text-ink-faint">{minutesLeft} min left</div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * A finished hour. A room gets one dot per person rather than one grade word:
+ * five people moved five different distances, and picking one of them to print
+ * would be exactly the partial figure the game promises never to show.
+ */
+function DoneCell({ session, room }: { session: ScheduledSession; room: Room }) {
+  const results = session.results ?? (session.result ? [session.result] : []);
+  const missed = session.status === 'missed';
+
+  return (
+    <div className={`w-full ${CELL_H} rounded-[10px] paper-flat px-2 py-1.5 flex flex-col justify-between opacity-70`}>
+      <div>
+        <div className="text-[0.78rem] font-bold text-ink truncate">{room.title}</div>
+        {room.isRoom || room.partners.length ? (
+          <div className="text-[0.62rem] text-ink-faint truncate">{room.sub}</div>
+        ) : null}
+      </div>
+      <div className="text-[0.66rem] text-ink-faint truncate">
+        {missed ? 'Never happened' : `${FOCUSES[session.focus].icon} ${FOCUSES[session.focus].name}`}
+      </div>
+      {room.isRoom && results.length > 1 ? (
+        <div className="flex items-center gap-1 flex-wrap">
+          {results.map((r) => {
+            const handle = room.members.find((m) => m.id === r.clientId)?.handle ?? '—';
+            return (
+              <span
+                key={r.clientId}
+                className="w-2 h-2 rounded-full shrink-0"
+                title={`${handle} — ${GRADE_WORD[r.grade]}`}
+                style={{
+                  background: GRADE_COLOR[r.grade],
+                  boxShadow: `0 0 0 2px color-mix(in oklab, ${GRADE_COLOR[r.grade]} 22%, transparent)`,
+                }}
+              />
+            );
+          })}
+          <span className="text-[0.6rem] text-ink-faint ml-0.5">{results.length} seen</span>
+        </div>
+      ) : (
+        <div
+          className="text-[0.7rem] font-extrabold uppercase tracking-[0.06em]"
+          style={{ color: session.result ? GRADE_COLOR[session.result.grade] : 'var(--color-ink-faint)' }}
+        >
+          {session.result ? GRADE_WORD[session.result.grade] : missed ? '—' : 'Done'}
+        </div>
+      )}
     </div>
   );
 }
@@ -535,37 +642,90 @@ function LiveCell({ sessionId, handle, focus }: { sessionId: string; handle: str
 function BookedCell({
   state,
   session,
-  client,
+  room,
   calm,
 }: {
   state: GameState;
   session: ScheduledSession;
-  client: Client;
+  room: Room;
   calm: boolean;
 }) {
   const dispatch = useDispatch();
-  const safety = focusSafety(client, session.focus);
-  const risk = regressionChance(state, client, session.focus);
-  const riskPct = Math.round(risk * 100);
+  const [rosterOpen, setRosterOpen] = useState(false);
+  const rosterAnchor = useRef<HTMLButtonElement | null>(null);
+
+  // The pace-setter is who the sim will build the technique cards for and who
+  // the regression roll is read from, so the risk shown is theirs.
+  const pacer = room.pacer;
+  const safety = focusSafety(pacer, session.focus);
+  const riskPct = Math.round(regressionChance(state, pacer, session.focus) * 100);
+  const typeColor = SESSION_TYPE_COLOR[session.type];
 
   return (
     <div
-      className={`w-full h-[5.2rem] rounded-[10px] card-warm px-2 py-1.5 flex flex-col justify-between ${
+      className={`w-full ${CELL_H} rounded-[10px] card-warm px-2 py-1.5 flex flex-col justify-between ${
         calm ? '' : 'pop-in'
       }`}
+      style={
+        session.type === 'individual'
+          ? undefined
+          : { borderColor: `color-mix(in oklab, ${typeColor} 42%, transparent)` }
+      }
     >
       <div className="flex items-start gap-1">
         <div className="flex-1 min-w-0">
-          <div className="text-[0.78rem] font-bold text-ink truncate" title={`${client.handle}, ${client.age}`}>
-            {client.handle}
+          {room.isRoom ? (
+            <button
+              ref={rosterAnchor}
+              type="button"
+              onClick={() => setRosterOpen((v) => !v)}
+              aria-expanded={rosterOpen}
+              aria-label={`${room.title} at ${slotClock(session.slot)} — see who is in it`}
+              // A shade smaller than a name: "Room of four" has to survive in a
+              // column 8.5rem wide, and truncating away the count is worse than
+              // truncating a name the line below already carries.
+              className="text-[0.74rem] font-bold text-ink truncate w-full text-left rounded-[4px] hover:text-amber-deep transition focus-visible:outline-2 focus-visible:outline-amber"
+            >
+              <span aria-hidden style={{ color: typeColor }}>
+                ◎{' '}
+              </span>
+              {room.title}
+            </button>
+          ) : (
+            <div
+              className="text-[0.78rem] font-bold text-ink truncate"
+              title={`${room.members[0].handle}, ${room.members[0].age}`}
+            >
+              {session.type !== 'individual' ? (
+                <span aria-hidden style={{ color: typeColor }}>
+                  🤝{' '}
+                </span>
+              ) : null}
+              {room.title}
+            </div>
+          )}
+          <div
+            className="text-[0.62rem] truncate"
+            style={{
+              color:
+                room.isRoom || room.partners.length
+                  ? `color-mix(in oklab, ${typeColor} 78%, var(--color-ink))`
+                  : 'var(--color-ink-faint)',
+            }}
+            title={room.sub}
+          >
+            {room.sub}
           </div>
-          <div className="text-[0.62rem] text-ink-faint truncate">{CONDITION_LABELS[client.condition]}</div>
         </div>
         <button
           type="button"
           onClick={() => dispatch({ type: 'UNBOOK_SESSION', sessionId: session.id })}
-          aria-label={`Unbook ${client.handle} from ${slotClock(session.slot)}`}
-          title="Take this hour back"
+          aria-label={
+            room.isRoom
+              ? `Clear the ${slotClock(session.slot)} room — all ${countWord(room.members.length)} of them`
+              : `Unbook ${room.members[0].handle} from ${slotClock(session.slot)}`
+          }
+          title={room.isRoom ? 'Cancel the whole hour' : 'Take this hour back'}
           className="shrink-0 w-4 h-4 grid place-items-center rounded-full text-[0.6rem] text-ink-faint hover:text-brick hover:bg-[color-mix(in_oklab,var(--color-brick)_14%,transparent)] transition"
         >
           ✕
@@ -573,10 +733,10 @@ function BookedCell({
       </div>
 
       <div className="flex items-center gap-1">
-        <div className="flex gap-0.5" role="group" aria-label={`Focus for ${client.handle}`}>
+        <div className="flex gap-0.5" role="group" aria-label={`Focus for ${room.title}`}>
           {focusOptions.map((f) => {
             const on = session.focus === f;
-            const fRisk = Math.round(regressionChance(state, client, f) * 100);
+            const fRisk = Math.round(regressionChance(state, pacer, f) * 100);
             return (
               <button
                 key={f}
@@ -603,9 +763,15 @@ function BookedCell({
           content={
             <>
               <strong>{SAFETY_WORD[safety]}.</strong> {FOCUSES[session.focus].name} carries a{' '}
-              <strong>{riskPct}%</strong> chance {client.handle} loses ground this hour. They are at{' '}
-              {Math.round(client.stability * 100)}% stability; {FOCUSES[session.focus].name} wants{' '}
+              <strong>{riskPct}%</strong> chance {pacer.handle} loses ground this hour. They are at{' '}
+              {Math.round(pacer.stability * 100)}% stability; {FOCUSES[session.focus].name} wants{' '}
               {Math.round(FOCUSES[session.focus].safeStability * 100)}%.
+              {room.isRoom ? (
+                <>
+                  {' '}
+                  They are the least steady person in the room, so the room moves at their pace.
+                </>
+              ) : null}
             </>
           }
         >
@@ -620,7 +786,210 @@ function BookedCell({
           </span>
         </Tooltip>
       </div>
+
+      {rosterOpen && room.isRoom ? (
+        <RosterPopover
+          state={state}
+          session={session}
+          room={room}
+          anchor={rosterAnchor.current}
+          onClose={() => {
+            setRosterOpen(false);
+            rosterAnchor.current?.focus();
+          }}
+        />
+      ) : null}
     </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The roster — who is in this room, and who else could be
+//
+// Portalled to document.body: the grid scrolls horizontally and clips its
+// overflow, so a popover rendered inside a cell is sliced off at the column
+// edge. Positioned with placeAnchored, which flips and clamps to the viewport.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function RosterPopover({
+  state,
+  session,
+  room,
+  anchor,
+  onClose,
+}: {
+  state: GameState;
+  session: ScheduledSession;
+  room: Room;
+  anchor: HTMLElement | null;
+  onClose: () => void;
+}) {
+  const dispatch = useDispatch();
+  const ref = useRef<HTMLDivElement | null>(null);
+  const [coords, setCoords] = useState<{ left: number; top: number } | null>(null);
+
+  const place = useCallback(() => {
+    const el = ref.current;
+    if (!el || !anchor) return;
+    const a = anchor.getBoundingClientRect();
+    const box = el.getBoundingClientRect();
+    setCoords(
+      placeAnchored(
+        { left: a.left, top: a.top, width: a.width, height: a.height },
+        { width: box.width, height: box.height },
+        'bottom',
+        { viewportWidth: window.innerWidth, viewportHeight: window.innerHeight },
+      ),
+    );
+  }, [anchor]);
+
+  useLayoutEffect(place, [place, room.members.length]);
+
+  /**
+   * Follows its cell rather than closing when the page moves. A tooltip can
+   * afford to vanish on scroll; this one cannot — clicking a cell near the edge
+   * of the grid scrolls it into view, and closing on that would mean the popover
+   * shut itself the instant it was asked for. Escape and a click outside are the
+   * ways out.
+   */
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', onKey, true);
+    window.addEventListener('scroll', place, true);
+    window.addEventListener('resize', place);
+    return () => {
+      window.removeEventListener('keydown', onKey, true);
+      window.removeEventListener('scroll', place, true);
+      window.removeEventListener('resize', place);
+    };
+  }, [onClose, place]);
+
+  useEffect(() => {
+    ref.current?.focus({ preventScroll: true });
+  }, []);
+
+  if (typeof document === 'undefined') return null;
+
+  const seats = GROUP_MAX_MEMBERS - room.members.length;
+  const waiting = activeClients(state)
+    .filter((c) => c.sessionType === 'group' && !clientBooked(state, c.id))
+    .sort((a, b) => clientPriority(state, b) - clientPriority(state, a));
+
+  return createPortal(
+    <>
+      <div className="fixed inset-0 z-[89]" onClick={onClose} aria-hidden />
+      <div
+        ref={ref}
+        tabIndex={-1}
+        role="dialog"
+        aria-label={`Who is in the ${slotClock(session.slot)} room`}
+        className="paper fixed z-[90] w-[19rem] max-h-[60vh] overflow-y-auto outline-none"
+        style={{
+          left: coords ? coords.left : 0,
+          top: coords ? coords.top : 0,
+          visibility: coords ? 'visible' : 'hidden',
+        }}
+      >
+        <div className="px-3 pt-2.5 pb-2">
+          <div className="display text-[0.95rem] text-ink leading-tight">
+            {roomTitle('group', room.members.length)}, {slotClock(session.slot)}
+          </div>
+          <p className="text-[0.7rem] text-ink-faint leading-snug mt-0.5">
+            <strong className="text-ink-soft">{room.pacer.handle}</strong> is the least steady person
+            here, so the hour moves at their pace and the technique is chosen for them.
+          </p>
+        </div>
+
+        <ul className="px-2 pb-2 flex flex-col gap-1">
+          {room.members.map((c) => (
+            <li key={c.id} className="paper-flat px-2 py-1.5 flex items-center gap-2">
+              <Portrait seed={c.portrait} size={28} />
+              <div className="min-w-0 flex-1">
+                <div className="flex items-baseline gap-1.5">
+                  <span className="text-[0.8rem] font-bold text-ink truncate">{c.handle}</span>
+                  <span className="tabular text-[0.66rem] text-ink-faint">{c.age}</span>
+                  {c.id === room.pacer.id ? (
+                    <span className="text-[0.58rem] font-extrabold uppercase tracking-[0.08em] text-amber-deep">
+                      sets the pace
+                    </span>
+                  ) : null}
+                </div>
+                <div className="text-[0.66rem] text-ink-faint leading-snug truncate">
+                  {CONDITION_LABELS[c.condition]} · {stabilityLabel(c.stability).toLowerCase()}
+                </div>
+              </div>
+              <Button
+                size="sm"
+                aria-label={`Excuse ${c.handle} from the ${slotClock(session.slot)} room`}
+                onClick={() =>
+                  dispatch({ type: 'LEAVE_GROUP_SESSION', sessionId: session.id, clientId: c.id })
+                }
+                title={
+                  room.members.length <= GROUP_MIN_MEMBERS
+                    ? 'A circle needs two. Taking this chair back calls the whole hour off.'
+                    : `${c.handle} keeps the day free; everyone else still meets.`
+                }
+              >
+                Excuse
+              </Button>
+            </li>
+          ))}
+        </ul>
+
+        <div className="px-3 pb-3 pt-1 border-t hairline">
+          {seats <= 0 ? (
+            <p className="text-[0.7rem] text-ink-faint leading-snug">
+              Six is as many as one room holds. Any more and there is not enough of you to go round.
+            </p>
+          ) : waiting.length === 0 ? (
+            <p className="text-[0.7rem] text-ink-faint leading-snug">
+              Nobody else is waiting for a group hour — {countWord(seats)} chair
+              {seats === 1 ? '' : 's'} still empty, and that is fine.
+            </p>
+          ) : (
+            <>
+              <div className="text-[0.58rem] font-extrabold uppercase tracking-[0.1em] text-ink-faint mb-1.5">
+                Room for {countWord(seats)} more
+              </div>
+              <ul className="flex flex-col gap-1">
+                {waiting.slice(0, seats).map((c) => (
+                  <li key={c.id} className="flex items-center gap-2">
+                    <Portrait seed={c.portrait} size={24} />
+                    <div className="min-w-0 flex-1">
+                      <span className="text-[0.76rem] font-bold text-ink">{c.handle}</span>{' '}
+                      <span className="text-[0.66rem] text-ink-faint">
+                        {CONDITION_LABELS[c.condition]}
+                      </span>
+                    </div>
+                    <Button
+                      variant="sage"
+                      size="sm"
+                      aria-label={`Seat ${c.handle} in the ${slotClock(session.slot)} room`}
+                      onClick={() =>
+                        dispatch({
+                          type: 'BOOK_GROUP_SESSION',
+                          clientIds: [c.id],
+                          therapistId: session.therapistId,
+                          slot: session.slot,
+                        })
+                      }
+                    >
+                      Seat them
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+        </div>
+      </div>
+    </>,
+    document.body,
   );
 }
 
@@ -645,6 +1014,13 @@ function ClientPicker({
   const queue = activeClients(state)
     .filter((c) => !clientBooked(state, c.id))
     .sort((a, b) => clientPriority(state, b) - clientPriority(state, a));
+
+  // A group case cannot be seen alone — the sim opens a room around them and
+  // seats whoever else is waiting. Below the minimum there is no room to open
+  // and the action would quietly do nothing, so the row says so instead.
+  const groupWaiting = queue.filter((c) => c.sessionType === 'group').length;
+  const roomOpens = Math.min(groupWaiting, GROUP_MAX_MEMBERS);
+  const canOpenRoom = groupWaiting >= GROUP_MIN_MEMBERS;
 
   return (
     <Modal onClose={onClose} width={520} labelledBy="picker-title">
@@ -671,19 +1047,31 @@ function ClientPicker({
               const fit = therapist ? specializationFit(therapist, c) : 0;
               const focus = suggestFocus(state, c);
               const risk = Math.round(regressionChance(state, c, focus) * 100);
+              const isGroup = c.sessionType === 'group';
+              const blocked = isGroup && !canOpenRoom;
+              const partners = c.partnerHandles ?? [];
               return (
                 <li key={c.id}>
                   <button
                     type="button"
+                    disabled={blocked}
                     onClick={() => onChoose(c.id, focus)}
-                    className="w-full text-left paper-flat px-2.5 py-2 flex items-start gap-2.5 hover:brightness-[1.03] transition focus-visible:outline-2 focus-visible:outline-amber"
+                    title={
+                      blocked
+                        ? `A group needs at least ${countWord(GROUP_MIN_MEMBERS)} people. Only ${c.handle} is waiting for one.`
+                        : undefined
+                    }
+                    className={`w-full text-left paper-flat px-2.5 py-2 flex items-start gap-2.5 transition focus-visible:outline-2 focus-visible:outline-amber ${
+                      blocked ? 'opacity-55 cursor-not-allowed' : 'hover:brightness-[1.03]'
+                    }`}
                   >
                     <Portrait seed={c.portrait} size={34} />
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-1.5">
+                      <div className="flex items-center gap-1.5 flex-wrap">
                         <span className="text-[0.86rem] font-bold text-ink">{c.handle}</span>
                         <span className="tabular text-[0.7rem] text-ink-faint">{c.age}</span>
                         <RiskDot level={riskBadge(state, c)} />
+                        <SessionTypeChip type={c.sessionType} partners={partners} />
                       </div>
                       <div className="text-[0.72rem] text-ink-soft leading-snug">
                         {CONDITION_LABELS[c.condition]} · {SEVERITY_LABELS[c.severity]}
@@ -695,6 +1083,33 @@ function ClientPicker({
                           : `${c.daysSinceSession} day${c.daysSinceSession === 1 ? '' : 's'} since their last hour`}{' '}
                         · patience {Math.round(c.patience)}%
                       </div>
+                      {/* What this click will actually do, when it is not simply
+                          "book this person" — the sim opens a whole room for a
+                          group case and seats everyone else who is waiting. */}
+                      {isGroup ? (
+                        <div
+                          className="text-[0.68rem] leading-snug mt-0.5"
+                          style={{
+                            color: blocked
+                              ? 'var(--color-brick)'
+                              : `color-mix(in oklab, ${SESSION_TYPE_COLOR.group} 80%, var(--color-ink))`,
+                          }}
+                        >
+                          {blocked
+                            ? `Nobody else is waiting for a group. A room needs ${countWord(GROUP_MIN_MEMBERS)}.`
+                            : `Opens a room and seats ${countWord(roomOpens)} — everyone waiting for a group hour.`}
+                        </div>
+                      ) : partners.length ? (
+                        <div
+                          className="text-[0.68rem] leading-snug mt-0.5"
+                          style={{
+                            color: `color-mix(in oklab, ${SESSION_TYPE_COLOR[c.sessionType]} 80%, var(--color-ink))`,
+                          }}
+                        >
+                          Comes in with {andList(partners)} — one hour, {countWord(partners.length + 1)}{' '}
+                          people in it.
+                        </div>
+                      ) : null}
                     </div>
                     <div className="shrink-0 flex flex-col items-end gap-1">
                       {therapist && (

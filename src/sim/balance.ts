@@ -1,4 +1,4 @@
-import type { Difficulty, SessionFocus, ConditionId, PaymentSource } from './types';
+import type { Difficulty, SessionFocus, ConditionId, PaymentSource, SessionType } from './types';
 
 /**
  * Every tuning number the sim reads lives here so the balance harness can
@@ -18,7 +18,7 @@ export const MS_PER_GAME_MINUTE = 100;
 /** Fraction through a session at which the decision beat fires. */
 export const DECISION_AT = 0.55;
 
-export const SAVE_VERSION = 7;
+export const SAVE_VERSION = 8;
 
 /** Bumped when the shape of a recorded action log changes. See src/sim/replay.ts. */
 export const REPLAY_FORMAT = 1;
@@ -215,6 +215,178 @@ export const BREAKTHROUGH_BASE_CHANCE = 0.05;
 /** Rapport, stability and resilience all approach their ceiling asymptotically. */
 export const ALLIANCE_SOFTNESS = 0.85;
 
+// ── Session types ───────────────────────────────────────────────────────────
+//
+// Four shapes of hour, and they differ in three places: how fast the case moves,
+// what the hour bills, and what it costs the person running it.
+//
+// Couples and family are *one case with several people in it* — a single client
+// record carrying `partnerHandles`, one progress arc, a higher fee, and a harder
+// hour. Group is the opposite: several separate cases sharing one slot, which is
+// why a group session carries `memberIds` and resolves once per member.
+
+/** Multiplier on progress per session. Group is slower per head; the room is not about you. */
+export const SESSION_TYPE_PROGRESS_MULT: Record<SessionType, number> = {
+  individual: 1,
+  couples: 1.12,
+  family: 1.12,
+  group: 0.78,
+};
+
+/** Multiplier on the billed fee. A group seat is far cheaper than an hour alone. */
+export const SESSION_TYPE_REVENUE_MULT: Record<SessionType, number> = {
+  individual: 1,
+  couples: 1,
+  family: 1,
+  group: 0.55,
+};
+
+/** Applied to the client's rate at intake — two or three people, one bill. */
+export const SESSION_TYPE_RATE_MULT: Record<SessionType, number> = {
+  individual: 1,
+  couples: 1.5,
+  family: 1.7,
+  group: 1,
+};
+
+/**
+ * Energy cost multiplier for holding more than one person in the room. Couples
+ * and family pay it as a flat surcharge; a group pays it per extra head, below.
+ */
+export const SESSION_TYPE_ENERGY_MULT: Record<SessionType, number> = {
+  individual: 1,
+  couples: 1.18,
+  family: 1.28,
+  group: 1,
+};
+
+/** A group of one is an individual session at group prices — never let it be bookable. */
+export const GROUP_MIN_MEMBERS = 2;
+/** Eight chairs in the room; six is where a group still hears everyone. */
+export const GROUP_MAX_MEMBERS = 6;
+
+/**
+ * Each extra person in the circle costs this fraction of a full session's energy
+ * — and the same fraction of its experience. Deliberately well under 1: the
+ * throughput *is* the payoff, and if a group cost as much as the sessions it
+ * replaces there would be no reason on earth to run one. At six members the room
+ * costs 2.5 sessions' energy and returns 3.3 sessions' fee and 4.7 sessions'
+ * worth of progress spread across six arcs.
+ */
+export const GROUP_ENERGY_PER_EXTRA_MEMBER = 0.3;
+
+/**
+ * Attention divides. Each extra head shaves a little quality off *every* member's
+ * hour — and because this is a per-item modifier multiplied by a list that grows,
+ * it gets its floor written in the same breath. (See MOD_CEILING for why.)
+ */
+export const GROUP_QUALITY_PER_EXTRA_MEMBER = -0.014;
+export const GROUP_QUALITY_FLOOR = -0.06;
+
+/**
+ * How fast the alliance builds, by room.
+ *
+ * This is what a specialty case *costs*, and it needs to exist: couples work
+ * bills 1.5× for 1.12× progress and 1.18× energy, which without a downside makes
+ * the certification a pure upgrade and the only question "why not sooner". The
+ * downside is the true one — you are holding two people at once and both have to
+ * trust you — and because rapport gates progress through the whole Trust
+ * chapter, it lands as "couples therapy takes longer to get going, then moves
+ * faster", which is exactly right.
+ */
+export const SESSION_TYPE_RAPPORT_MULT: Record<SessionType, number> = {
+  individual: 1,
+  couples: 0.82,
+  family: 0.76,
+  group: 0.7,
+};
+
+/**
+ * Share of ordinary referrals that arrive as this kind of case, once the
+ * certification is owned. Flat, not reputation-scaled: volume already grows with
+ * reputation, and a practice that is 40% couples is a different game than this
+ * one. The combined specialty share is normalised to `SPECIALTY_REFERRAL_CAP` so
+ * that owning both certifications never crowds individual work out.
+ */
+export const SESSION_TYPE_REFERRAL_SHARE: Record<'couples' | 'family', number> = {
+  couples: 0.11,
+  family: 0.08,
+};
+export const SPECIALTY_REFERRAL_CAP = 0.25;
+
+/**
+ * Group referrals arrive in cohorts rather than one at a time, because a lone
+ * group client is a person who cannot be seen. Self-limiting: no new cohort
+ * while there are already this many group clients waiting or on the books.
+ */
+export const GROUP_COHORT_CHANCE_PER_DAY = 0.16;
+export const GROUP_COHORT_SIZE: [number, number] = [2, 3];
+export const GROUP_COHORT_CEILING = 9;
+
+/** How many people are already at the door the week a certification lands. */
+export const CERTIFICATION_WELCOME_REFERRALS = 1;
+
+/**
+ * Referral weights per condition, multiplied in when the referral is for a
+ * particular kind of room. Zero means "this never comes through that door":
+ * nobody is referred to family therapy for occupational burnout, and the family
+ * generator seats a minor, so conditions that cannot present before 18 are out.
+ */
+export const SESSION_TYPE_CONDITION_BIAS: Partial<
+  Record<SessionType, Partial<Record<ConditionId, number>>>
+> = {
+  couples: {
+    relationship: 10,
+    identity: 1.5,
+    substance: 1.4,
+    grief: 1.3,
+    trauma: 1.2,
+    depression: 0.7,
+    anxiety: 0.6,
+    adhd: 0.4,
+    ocd: 0.4,
+    bipolar: 0.4,
+    eating: 0.3,
+    psychosis: 0,
+    behavioral: 0,
+  },
+  family: {
+    behavioral: 8,
+    adhd: 3,
+    identity: 2,
+    eating: 1.6,
+    anxiety: 0.8,
+    depression: 0.8,
+    grief: 1.1,
+    trauma: 1,
+    ocd: 0.6,
+    psychosis: 0.3,
+    relationship: 0,
+    substance: 0,
+    bipolar: 0,
+    burnout: 0,
+  },
+  group: {
+    anxiety: 1.7,
+    depression: 1.7,
+    substance: 1.8,
+    grief: 1.7,
+    burnout: 1.5,
+    trauma: 1.1,
+    identity: 1.2,
+    bipolar: 0.6,
+    eating: 0.7,
+    ocd: 0.6,
+    adhd: 0.8,
+    psychosis: 0.2,
+    behavioral: 0.1,
+    relationship: 0.5,
+  },
+};
+
+/** Age band for the identified young person in a family referral. */
+export const FAMILY_CHILD_AGE_RANGE: [number, number] = [9, 17];
+
 // ── Client flow ─────────────────────────────────────────────────────────────
 
 export const PATIENCE_DECAY_PER_IDLE_DAY = 7;
@@ -254,6 +426,18 @@ export const COLLECTION_RATE: Record<PaymentSource, number> = {
 
 export const BASE_ENERGY = 100;
 export const ENERGY_PER_SESSION = 14;
+/**
+ * What the auto-scheduler *assumes* an hour will cost when it decides whether
+ * booking one more would breach the energy reserve. Deliberately a flat figure
+ * a shade under `ENERGY_PER_SESSION` rather than the true per-focus cost: it is
+ * a planning number, and using the real one makes the scheduler refuse to book
+ * a fourth session on any process-heavy day, which measurably reshapes the whole
+ * difficulty curve (Standard accreditation 17/20 → 9/20 in a 20×200 sweep). The
+ * session-type and group-size factors *are* applied to it, because a room of six
+ * costing the same as one chair is not a rounding error — it is a burnout
+ * machine. See docs/BALANCE.md → Known softness.
+ */
+export const SCHEDULER_ENERGY_ESTIMATE = 13;
 export const ENERGY_REGEN_OVERNIGHT = 70;
 /** A comfortable day. Past this, strain accumulates and burnout becomes real. */
 export const COMFORTABLE_SESSIONS_PER_DAY = 4.5;

@@ -561,7 +561,19 @@ export interface AlumniRecord {
 
 export interface ScheduledSession {
   id: string;
+  /**
+   * The seat the session is filed under. For every session but a group one this
+   * is the only person in the room; for a group it is the first member, kept so
+   * that anything holding a session by its client id still resolves to somebody
+   * real. Read the room through `sessionMembers()`, never this field.
+   */
   clientId: string;
+  /**
+   * Everyone in the room, in the order they joined it. Absent on single-client
+   * sessions — that is the overwhelming majority, and writing `[clientId]` on
+   * every one of them would bloat every save for the sake of tidiness.
+   */
+  memberIds?: string[];
   therapistId: string;
   /** 0..SLOTS_PER_DAY-1 */
   slot: number;
@@ -570,8 +582,14 @@ export interface ScheduledSession {
   status: 'scheduled' | 'active' | 'done' | 'missed' | 'cancelled';
   /** 0..1 progress through the session, set while active. */
   t: number;
-  /** Set once resolved. */
+  /**
+   * Set once resolved. For a group this is the result of the member the room's
+   * pace was set by — `results` holds all of them, and every one of them is
+   * reported, because five people moved and the player is owed five numbers.
+   */
   result?: SessionResult;
+  /** One result per member. Absent on a single-client session; `result` is it. */
+  results?: SessionResult[];
   /** Technique chosen during the play beat. */
   techniqueUsed?: string;
   /** True when the auto-scheduler booked it. */
@@ -604,6 +622,31 @@ export interface SessionResult {
   beat?: { id: string; text: string; mood: string };
   techniqueUsed?: string;
   focus: SessionFocus;
+  /**
+   * Present on every result that came out of a room with more than one case in
+   * it. The UI folds results sharing a `sessionId` into a single card; the sim
+   * never merges them, because a group session is five separate arcs that happen
+   * to share an hour and each one is owed its own explanation.
+   */
+  group?: GroupContext;
+}
+
+export interface GroupContext {
+  /** How many cases were in the room. */
+  size: number;
+  /** Handles of everyone in the room, in seating order. */
+  handles: string[];
+  /**
+   * The member whose steadiness set the pace — the technique was chosen for
+   * them, and the focus with them in mind.
+   */
+  pacedByClientId: string;
+  /**
+   * The room's total energy cost. Each member's own `energyCost` carries a share
+   * of this (with the remainder on the first member) so that summing the day's
+   * results still gives the therapist's real spend.
+   */
+  totalEnergyCost: number;
 }
 
 export interface ProgramInstance {
@@ -880,6 +923,21 @@ export type GameAction =
   | { type: 'START_DAY' }
   | { type: 'END_DAY' }
   | { type: 'BOOK_SESSION'; clientId: string; therapistId: string; slot: number; focus?: SessionFocus }
+  /**
+   * Books a group: several cases into one slot with one therapist. Dispatching
+   * it at a slot that already holds this therapist's group adds the named
+   * clients to that room instead of failing, so "add one more" needs no second
+   * verb. Non-group clients in `clientIds` are ignored.
+   */
+  | {
+      type: 'BOOK_GROUP_SESSION';
+      clientIds: string[];
+      therapistId: string;
+      slot: number;
+      focus?: SessionFocus;
+    }
+  /** Takes one person out of a booked group. Cancels the session if it empties. */
+  | { type: 'LEAVE_GROUP_SESSION'; sessionId: string; clientId: string }
   | { type: 'UNBOOK_SESSION'; sessionId: string }
   | { type: 'SET_SESSION_FOCUS'; sessionId: string; focus: SessionFocus }
   | { type: 'AUTOFILL_SCHEDULE' }

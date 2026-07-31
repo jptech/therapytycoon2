@@ -6,6 +6,7 @@ import {
 } from './balance';
 import { eventById, EVENTS, techniqueById, upgradeById } from '../content';
 import { makeId, type Rng } from './rng';
+import { chapterFor } from './session';
 import type {
   Client,
   EventChoice,
@@ -298,7 +299,13 @@ export function applyEffect(effect: EventEffect | undefined, ctx: EffectContext)
   if (client) {
     if (effect.clientRapport) client.rapport = clamp01(client.rapport + effect.clientRapport);
     if (effect.clientStability) client.stability = clamp01(client.stability + effect.clientStability);
-    if (effect.clientProgress) client.progress = clamp(client.progress + effect.clientProgress, 0, 100);
+    if (effect.clientProgress) {
+      client.progress = clamp(client.progress + effect.clientProgress, 0, 100);
+      // Progress and chapter are one fact stored twice, and an event that moved
+      // one without the other left a client sitting in the Work chapter at 78%
+      // — wrong beats, wrong techniques offered, wrong label on the card.
+      client.chapter = chapterFor(client.progress);
+    }
     if (effect.clientPatience) client.patience = clamp(client.patience + effect.clientPatience, 0, 100);
   }
 

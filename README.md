@@ -76,6 +76,7 @@ Every session has three beats:
 bun run dev          # dev server
 bun run build        # production build
 bun run test         # vitest — formulas, day-loop liveness, saves, content integrity
+bun run test:e2e     # Playwright — one full day in a real browser; see docs/TESTING.md
 bun run typecheck    # tsc --noEmit
 bun run balance      # headless balance harness — see docs/BALANCE.md
 bun run playtest     # narrate a single run: the beats, events and goodbyes in order
@@ -94,6 +95,15 @@ printing the story beats, the dilemmas chosen and the goodbyes in order:
 
 ```bash
 bun run playtest -- --seed 7 --days 90 --difficulty challenge
+```
+
+Neither of them opens a window, and every bug a person found while playing was a fact about a
+rendered page — a clipped tooltip, a panel under the HUD, a clock that would not start. The
+browser suite covers those. It starts its own dev server, but it needs its browser downloaded
+once per machine:
+
+```bash
+bun run e2e:install   # once, then bun run test:e2e (~50s)
 ```
 
 ## Stack

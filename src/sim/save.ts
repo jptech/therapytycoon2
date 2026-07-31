@@ -76,6 +76,20 @@ const MIGRATIONS: Record<number, Migration> = {
     s.subjectCooldowns ??= {};
     return s;
   },
+  7: (s) => {
+    // v7 → v8: a session can hold a room rather than one chair. Every session in
+    // an old save is a single seat, and `sessionMembers()` reads an absent
+    // `memberIds` as exactly that — so this is belt as well as braces. It is
+    // written anyway because a mid-day save is the one place a stale schedule
+    // outlives the migration, and a schedule is cheap.
+    const schedule = Array.isArray(s.schedule) ? (s.schedule as Record<string, unknown>[]) : [];
+    for (const sess of schedule) {
+      if (!Array.isArray(sess.memberIds) || !sess.memberIds.length) {
+        sess.memberIds = typeof sess.clientId === 'string' ? [sess.clientId] : [];
+      }
+    }
+    return s;
+  },
 };
 
 export function migrate(raw: Record<string, unknown>): GameState {

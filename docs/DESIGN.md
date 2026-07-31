@@ -87,6 +87,51 @@ they cried, the session where they start talking about ending. Three of them rai
 Cured clients become **alumni**: they send referrals, appear on the photo wall, and leave a
 testimonial.
 
+## 3a. Four shapes of hour
+
+Individual work is the spine. Three certifications widen it, and each one changes a different
+axis rather than being a bigger number.
+
+| | Fee | Progress | Energy | Alliance | Where it lives |
+| --- | --- | --- | --- | --- | --- |
+| **Individual** | ×1 | ×1 | ×1 | ×1 | one client, one chair |
+| **Couples** | ×1.5 | ×1.12 | ×1.18 | ×0.82 | one case, `partnerHandles` |
+| **Family** | ×1.7 | ×1.12 | ×1.28 | ×0.76 | one case, filed under the young person |
+| **Group** | ×0.55 **per seat** | ×0.78 | ×1 + 0.3/extra head | ×0.7 | one session, `memberIds` |
+
+**Couples and family are one case with several people in it.** A single client record, a single
+progress arc, one bill. The cost that keeps the certification from being a pure upgrade is the
+alliance: there are two or three people who have to trust you, so rapport builds slower — and
+because rapport gates progress through the whole Trust chapter, specialty work reads as *slow to
+get going, then faster than individual work*, which is exactly what it is.
+
+**Group is the opposite shape, and it is the one that needed new machinery.** `ScheduledSession`
+now carries `memberIds`, and a group session resolves once per member: several separate arcs that
+happen to share an hour. That is the only arrangement in which group therapy is worth anything —
+at 0.55× the fee and 0.78× the progress, one person in the group room is strictly worse than the
+same person seen alone, and the Group Room would be a $3,800 trap. The throughput is the whole
+point:
+
+- **Energy is sublinear.** Six people cost 2.5 sessions' energy, not six — and experience follows
+  the same curve, because it is the same claim about how much work an hour is.
+- **Attention divides.** Each extra head shaves quality off *everyone's* hour, with a floor
+  (`GROUP_QUALITY_FLOOR`) written in the same breath, because this is the aggregate-modifier
+  shape that has bitten this codebase three times already.
+- **The room moves at the pace of whoever is least steady in it.** That member sets the focus and
+  the technique card is chosen for them. Real clinical wisdom, and it gives the player a legible
+  reason for a choice that would otherwise feel arbitrary in a circle of six.
+- **Every member's numbers are reported.** `session.results` holds one `SessionResult` per person
+  and all of them land in `lastDayResults`. Five people moved; the player is owed five
+  explanations. The room's energy cost is split across them so the day's totals still add up.
+
+Group referrals arrive **as a cohort** (2–3 at a time, self-limiting at nine on the books), not as
+a trickle, because a lone group client is somebody nobody can see. Couples and family take a flat
+share of ordinary referrals — flat rather than reputation-scaled, because volume already grows
+with reputation and a practice that is 40% couples is a different game than this one. The combined
+specialty share is capped, so owning every certification widens the practice rather than crowding
+individual work out. Buying a certification puts somebody at the door the same week: a
+certification you cannot see is a receipt, not a decision.
+
 ## 4. Therapists as people
 
 Two or three traits from a pool of 22, each hooking into scheduling, matching, morale and events.

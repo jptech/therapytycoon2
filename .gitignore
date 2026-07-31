@@ -3,3 +3,9 @@ dist
 .DS_Store
 *.log
 balance-out/
+
+# Playwright run artefacts — traces, failure screenshots, the HTML report.
+# The browser binaries themselves live in ~/Library/Caches/ms-playwright.
+e2e-results/
+playwright-report/
+blob-report/

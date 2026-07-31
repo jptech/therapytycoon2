@@ -1,6 +1,19 @@
-import { AT_RISK_PATIENCE_THRESHOLD, FOCUSES, SLOTS_PER_DAY } from './balance';
+import {
+  AT_RISK_PATIENCE_THRESHOLD,
+  FOCUSES,
+  GROUP_MAX_MEMBERS,
+  GROUP_MIN_MEMBERS,
+  SESSION_TYPE_REVENUE_MULT,
+  SLOTS_PER_DAY,
+} from './balance';
 import { specializationFit } from './quality';
 import { makeId, type Rng } from './rng';
+import {
+  plannedSessionEnergy,
+  sessionEnergyCost,
+  sessionIncludes,
+  sessionMembers,
+} from './session';
 import type {
   Client,
   GameState,
@@ -93,7 +106,50 @@ export function slotTaken(state: GameState, therapistId: string, slot: number): 
 }
 
 export function clientBooked(state: GameState, clientId: string): boolean {
-  return state.schedule.some((s) => s.clientId === clientId && s.status !== 'cancelled');
+  return state.schedule.some((s) => s.status !== 'cancelled' && sessionIncludes(s, clientId));
+}
+
+/** The group this therapist is already holding in this slot, if any. */
+export function groupSessionAt(
+  state: GameState,
+  therapistId: string,
+  slot: number,
+): ScheduledSession | undefined {
+  return state.schedule.find(
+    (s) =>
+      s.therapistId === therapistId &&
+      s.slot === slot &&
+      s.type === 'group' &&
+      s.status === 'scheduled',
+  );
+}
+
+/**
+ * Take one person out of every session they are still due to attend.
+ *
+ * Called whenever somebody leaves the caseload mid-day — cured, dropped, or
+ * referred on. For an ordinary session that means dropping the session; for a
+ * group it means one empty chair and an hour that still runs for everybody else.
+ * Sessions already resolved are left alone: they happened.
+ */
+export function detachClientFromSchedule(state: GameState, clientId: string): void {
+  const keep: ScheduledSession[] = [];
+  for (const s of state.schedule) {
+    if (s.status === 'done' || !sessionIncludes(s, clientId)) {
+      keep.push(s);
+      continue;
+    }
+    const rest = sessionMembers(s).filter((id) => id !== clientId);
+    if (!rest.length) continue; // nobody left in the room
+    // Someone graduating out of a pair leaves a circle of one, which would bill
+    // a group rate for an individual hour. An hour already under way plays out;
+    // one still to come is dropped, and the person left over can be re-booked.
+    if (rest.length < GROUP_MIN_MEMBERS && s.type === 'group' && s.status === 'scheduled') continue;
+    s.memberIds = rest;
+    s.clientId = rest[0];
+    keep.push(s);
+  }
+  state.schedule = keep;
 }
 
 /** Therapists who can take sessions today. */
@@ -138,26 +194,76 @@ interface MatchScore {
   score: number;
 }
 
-function bestMatch(state: GameState, c: Client, load: Record<string, number>): MatchScore | undefined {
+/** Running tally of what the day has already committed each therapist to. */
+interface Load {
+  /** Sessions booked — one per hour, however many people are in the room. */
+  sessions: Record<string, number>;
+  /** Estimated energy already spoken for. */
+  energy: Record<string, number>;
+}
+
+function emptyLoad(state: GameState): Load {
+  const load: Load = { sessions: {}, energy: {} };
+  for (const s of state.schedule) {
+    if (s.status === 'cancelled') continue;
+    load.sessions[s.therapistId] = (load.sessions[s.therapistId] ?? 0) + 1;
+    // Only hours still to come: a finished session has already been paid for out
+    // of `t.energy`, and counting it twice would stop the afternoon booking.
+    if (s.status === 'done' || s.status === 'missed') continue;
+    load.energy[s.therapistId] =
+      (load.energy[s.therapistId] ?? 0) + plannedSessionEnergy(s.type, sessionMembers(s).length);
+  }
+  return load;
+}
+
+/**
+ * Where does this hour go? `group` is one or more cases sharing a room, so the
+ * fit that matters is the average across everybody in it, and continuity counts
+ * once per member who already knows this therapist.
+ */
+function bestMatch(
+  state: GameState,
+  group: Client[],
+  focus: SessionFocus,
+  load: Load,
+): MatchScore | undefined {
+  if (!group.length) return undefined;
   const maxSessions = policy(state, 'max_sessions_per_therapist')?.value ?? SLOTS_PER_DAY;
   const energyReserve = (policy(state, 'min_energy_reserve')?.value ?? 0) / 100;
   const wantMatch = !!policy(state, 'match_specialization');
   const balance = !!policy(state, 'balance_workload');
   const supervision = policy(state, 'reserve_slot_for_supervision');
+  const type = group[0].sessionType;
 
   let best: MatchScore | undefined;
   for (const t of bookableTherapists(state)) {
-    const booked = load[t.id] ?? 0;
+    const booked = load.sessions[t.id] ?? 0;
     if (booked >= maxSessions) continue;
     // Energy forecast: don't book past the reserve.
-    const projected = t.energy - booked * 13;
+    //
+    // Note this measures what is *already* committed and not the hour being
+    // considered, so the reserve is breached by one session rather than defended
+    // exactly. That is the long-standing behaviour and it is left alone
+    // deliberately: closing the gap books roughly one fewer session a day per
+    // therapist across the board, which halves burnouts and takes Challenge from
+    // 17/40 collapses to 10/40 in a 40×200 sweep. A real retune, and not this
+    // change's to make. See docs/BALANCE.md → Known softness.
+    const projected = t.energy - (load.energy[t.id] ?? 0);
     if (projected < t.maxEnergy * energyReserve) continue;
 
-    // Route-condition policies force an assignment.
+    // Route-condition policies force an assignment. A mixed group cannot be
+    // routed by condition, so the rule only bites when everyone agrees.
     const route = state.policies.find(
-      (p) => p.enabled && p.kind === 'route_condition_to_therapist' && p.targetCondition === c.condition,
+      (p) =>
+        p.enabled &&
+        p.kind === 'route_condition_to_therapist' &&
+        group.every((c) => c.condition === p.targetCondition),
     );
     if (route && route.targetTherapistId && route.targetTherapistId !== t.id) continue;
+
+    const fit = group.reduce((a, c) => a + specializationFit(t, c), 0) / group.length;
+    const bonds = group.filter((c) => t.bonds.includes(c.id)).length;
+    const continuity = group.filter((c) => c.therapistId === t.id).length;
 
     for (let slot = 0; slot < SLOTS_PER_DAY; slot++) {
       if (slotTaken(state, t.id, slot)) continue;
@@ -167,11 +273,11 @@ function bestMatch(state: GameState, c: Client, load: Record<string, number>): M
       if (t.preferredSlots?.length && !t.preferredSlots.includes(slot)) continue;
 
       let score = 0;
-      if (wantMatch) score += specializationFit(t, c) * 100;
+      if (wantMatch) score += fit * 100;
       else score += 30;
       if (route?.targetTherapistId === t.id) score += 60;
-      if (t.bonds.includes(c.id)) score += 25;
-      if (c.therapistId === t.id) score += 45; // continuity of care matters
+      score += (bonds / group.length) * 25;
+      score += (continuity / group.length) * 45; // continuity of care matters
       if (balance) score -= booked * 7;
       score += (t.energy / Math.max(1, t.maxEnergy)) * 20;
       score += (t.morale / 100) * 10;
@@ -189,43 +295,86 @@ export interface AutofillResult {
   skipped: number;
 }
 
+/** The room moves at the pace of whoever is least steady in it. */
+export function roomFocus(state: GameState, members: Client[]): SessionFocus {
+  const pacer = members.reduce((a, b) => (b.stability < a.stability ? b : a));
+  return suggestFocus(state, pacer);
+}
+
+function commit(
+  state: GameState,
+  rng: Rng,
+  members: Client[],
+  focus: SessionFocus,
+  match: MatchScore,
+  load: Load,
+  auto?: boolean,
+): void {
+  const isRoom = members.length > 1;
+  state.schedule.push({
+    id: makeId(rng, 's'),
+    clientId: members[0].id,
+    memberIds: isRoom ? members.map((m) => m.id) : undefined,
+    therapistId: match.therapist.id,
+    slot: match.slot,
+    focus,
+    type: members[0].sessionType,
+    status: 'scheduled',
+    t: 0,
+    auto,
+  });
+  for (const m of members) m.therapistId = match.therapist.id;
+  load.sessions[match.therapist.id] = (load.sessions[match.therapist.id] ?? 0) + 1;
+  load.energy[match.therapist.id] =
+    (load.energy[match.therapist.id] ?? 0) +
+    plannedSessionEnergy(members[0].sessionType, members.length);
+}
+
 /**
  * Fill today's schedule. Used by the Act-1/2 "autofill" button and by the Act-3
  * policy auto-scheduler (which simply runs the same code with the player's rules).
+ *
+ * Groups are formed first, because a group is the highest-throughput hour on the
+ * board and because a group client left over is a person nobody can see — the
+ * remainder below `GROUP_MIN_MEMBERS` waits for the cohort to fill out.
  */
 export function autofillSchedule(state: GameState, rng: Rng, opts: { auto?: boolean } = {}): AutofillResult {
-  const load: Record<string, number> = {};
-  for (const s of state.schedule) {
-    if (s.status === 'cancelled') continue;
-    load[s.therapistId] = (load[s.therapistId] ?? 0) + 1;
-  }
+  const load = emptyLoad(state);
 
-  const queue = activeClients(state)
+  const unbooked = activeClients(state)
     .filter((c) => !clientBooked(state, c.id))
     .sort((a, b) => clientPriority(state, b) - clientPriority(state, a));
 
   let booked = 0;
   let skipped = 0;
-  for (const c of queue) {
-    const match = bestMatch(state, c, load);
+
+  const waitingForARoom = unbooked.filter((c) => c.sessionType === 'group');
+  for (let i = 0; i < waitingForARoom.length; ) {
+    const chunk = waitingForARoom.slice(i, i + GROUP_MAX_MEMBERS);
+    if (chunk.length < GROUP_MIN_MEMBERS) {
+      skipped += chunk.length;
+      break;
+    }
+    const focus = roomFocus(state, chunk);
+    const match = bestMatch(state, chunk, focus, load);
+    if (!match) {
+      skipped += waitingForARoom.length - i;
+      break;
+    }
+    commit(state, rng, chunk, focus, match, load, opts.auto);
+    booked++;
+    i += chunk.length;
+  }
+
+  for (const c of unbooked) {
+    if (c.sessionType === 'group') continue;
+    const focus = suggestFocus(state, c);
+    const match = bestMatch(state, [c], focus, load);
     if (!match) {
       skipped++;
       continue;
     }
-    const focus = suggestFocus(state, c);
-    state.schedule.push({
-      id: makeId(rng, 's'),
-      clientId: c.id,
-      therapistId: match.therapist.id,
-      slot: match.slot,
-      focus,
-      type: c.sessionType,
-      status: 'scheduled',
-      t: 0,
-      auto: opts.auto,
-    });
-    c.therapistId = match.therapist.id;
-    load[match.therapist.id] = (load[match.therapist.id] ?? 0) + 1;
+    commit(state, rng, [c], focus, match, load, opts.auto);
     booked++;
   }
   return { booked, skipped };
@@ -315,7 +464,7 @@ export function computeExceptions(state: GameState): Exception[] {
 export function energyForecast(state: GameState, t: Therapist): number {
   const booked = sessionsForTherapist(state, t.id).filter((s) => s.status === 'scheduled');
   let e = t.energy;
-  for (const s of booked) e -= 13 * FOCUSES[s.focus].energyMult;
+  for (const s of booked) e -= sessionEnergyCost(t, s.focus, s.type, sessionMembers(s).length);
   return Math.max(0, Math.round(e));
 }
 
@@ -323,8 +472,10 @@ export function dailyRevenueForecast(state: GameState): number {
   let total = 0;
   for (const s of state.schedule) {
     if (s.status === 'cancelled' || s.status === 'done') continue;
-    const c = state.clients.find((x) => x.id === s.clientId);
-    if (c) total += c.rate * (c.sessionType === 'group' ? 0.55 : 1);
+    for (const id of sessionMembers(s)) {
+      const c = state.clients.find((x) => x.id === id);
+      if (c) total += c.rate * (SESSION_TYPE_REVENUE_MULT[c.sessionType] ?? 1);
+    }
   }
   return Math.round(total);
 }

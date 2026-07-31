@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { CONDITION_LABELS, FOCUSES, SEVERITY_LABELS } from '../sim/balance';
 import { capacity, dailyExpenses } from '../sim/engine';
-import { computeExceptions, dailyRevenueForecast, type Exception } from '../sim/scheduler';
+import { clientBooked, computeExceptions, dailyRevenueForecast, type Exception } from '../sim/scheduler';
 import { formatDay, formatMoney } from '../sim/util';
 import { useDispatch, useSim, useSimShallow, useStore } from '../store';
 import type { GameState, OutcomeGrade, SessionResult } from '../sim/types';
 import { Button, Chip, Divider, EdgeRule, EmptyState, Meter, SectionHeading, Tooltip } from './primitives';
 import { Plant, Portrait } from './Portrait';
+import { SESSION_TYPE_COLOR, SessionTypeChip, andList, countWord, roomTitle } from './rooms';
 import { dayCardDock, getPanelWidth, subscribePanelWidth, type DayCardDock } from './dock';
 
 /**
@@ -231,11 +232,11 @@ export function MorningBrief() {
 
   const booked = useSim((s) => s.schedule.filter((x) => x.status !== 'cancelled').length);
   const autoBooked = useSim((s) => s.schedule.filter((x) => x.status !== 'cancelled' && x.auto).length);
+  // `clientBooked`, not a scan of `schedule[].clientId`: a group hour files
+  // everyone but its first member under `memberIds`, and this count decides
+  // whether "Auto-fill the day" is even offered.
   const unbooked = useSim(
-    (s) =>
-      s.clients.filter(
-        (c) => c.status === 'active' && !s.schedule.some((x) => x.clientId === c.id && x.status !== 'cancelled'),
-      ).length,
+    (s) => s.clients.filter((c) => c.status === 'active' && !clientBooked(s, c.id)).length,
   );
   const forecastRevenue = useSim((s) => dailyRevenueForecast(s));
   const forecastExpenses = useSim((s) => dailyExpenses(s));
@@ -363,6 +364,7 @@ export function MorningBrief() {
                     <span className="text-[0.84rem] font-bold text-ink">{c.handle}</span>
                     <span className="tabular text-[0.7rem] text-ink-faint">{c.age}</span>
                     {c.complex ? <Chip color="var(--color-plum)">Complex</Chip> : null}
+                    <SessionTypeChip type={c.sessionType} partners={c.partnerHandles} />
                     {c.payment === 'sliding_scale' ? <Chip color="var(--color-sage)">Sliding scale</Chip> : null}
                   </div>
                   <div className="text-[0.7rem] text-ink-faint leading-snug truncate">
@@ -468,27 +470,66 @@ function ResultHeader() {
   );
 }
 
-function ResultRow({ result }: { result: SessionResult }) {
+/**
+ * The day's results, folded into hours.
+ *
+ * `lastDayResults` holds one entry per *person*, so a room of five contributes
+ * five. The ledger is a list of hours, and five rows all claiming to be the same
+ * session (with the same React key) was both a duplicate-key warning and a lie
+ * about how full the day was.
+ */
+interface LedgerHour {
+  sessionId: string;
+  results: SessionResult[];
+}
+
+function foldHours(results: SessionResult[]): LedgerHour[] {
+  const out: LedgerHour[] = [];
+  for (const r of results) {
+    const last = out[out.length - 1];
+    if (last && last.sessionId === r.sessionId) last.results.push(r);
+    else out.push({ sessionId: r.sessionId, results: [r] });
+  }
+  return out;
+}
+
+function ResultRow({ result, nested = false }: { result: SessionResult; nested?: boolean }) {
   const handle = useSim((s) => s.clients.find((c) => c.id === result.clientId)?.handle ?? '—');
   const age = useSim((s) => s.clients.find((c) => c.id === result.clientId)?.age ?? 0);
   const seed = useSimShallow((s) => s.clients.find((c) => c.id === result.clientId)?.portrait);
   const therapistName = useSim((s) => s.therapists.find((t) => t.id === result.therapistId)?.name ?? 'the practice');
+  const partners = useSim(
+    (s) => (s.clients.find((c) => c.id === result.clientId)?.partnerHandles ?? []).join('|'),
+  );
   const focus = FOCUSES[result.focus];
 
   return (
-    <div className="flex items-center gap-2.5 py-1.5 border-b hairline last:border-b-0">
-      <span className="w-[28px] shrink-0">{seed ? <Portrait seed={seed} size={28} /> : null}</span>
+    <div
+      className={`flex items-center gap-2.5 py-1.5 ${
+        nested ? '' : 'border-b hairline last:border-b-0'
+      }`}
+    >
+      <span className="w-[28px] shrink-0">
+        {seed ? <Portrait seed={seed} size={nested ? 22 : 28} /> : null}
+      </span>
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline gap-1.5">
           <span className="text-[0.82rem] font-bold text-ink truncate">{handle}</span>
           <span className="tabular text-[0.68rem] text-ink-faint">{age}</span>
-          <span title={`${focus.name} — ${focus.blurb}`} aria-label={focus.name}>
-            {focus.icon}
-          </span>
+          {!nested ? (
+            <span title={`${focus.name} — ${focus.blurb}`} aria-label={focus.name}>
+              {focus.icon}
+            </span>
+          ) : null}
           {result.breakthrough ? <span title="Breakthrough">✨</span> : null}
           {result.regression ? <span title="Lost ground">↘</span> : null}
         </div>
-        <div className="text-[0.67rem] text-ink-faint leading-snug truncate">with {therapistName}</div>
+        {nested ? null : (
+          <div className="text-[0.67rem] text-ink-faint leading-snug truncate">
+            with {therapistName}
+            {partners ? ` · ${andList(partners.split('|'))} there too` : ''}
+          </div>
+        )}
       </div>
       <span className="shrink-0 flex justify-end" style={{ width: COL_GRADE }}>
         <GradePill result={result} />
@@ -510,6 +551,64 @@ function ResultRow({ result }: { result: SessionResult }) {
       >
         {formatMoney(result.revenue)}
       </span>
+    </div>
+  );
+}
+
+/**
+ * One hour with several people in it. The room is the ledger line — one hour,
+ * one set of fees — and every person in it keeps their own row underneath, with
+ * their own grade and their own distance travelled. There is deliberately no
+ * total in the Progress column: adding up how far five different people moved
+ * would be a number that means nothing.
+ */
+function RoomLedgerRow({ hour }: { hour: LedgerHour }) {
+  const head = hour.results[0];
+  const therapistName = useSim((s) => s.therapists.find((t) => t.id === head.therapistId)?.name ?? 'the practice');
+  const focus = FOCUSES[head.focus];
+  const fees = hour.results.reduce((a, r) => a + r.revenue, 0);
+  const size = hour.results.length;
+
+  return (
+    <div className="border-b hairline last:border-b-0 py-1.5">
+      <div className="flex items-center gap-2.5">
+        <span
+          className="w-[28px] shrink-0 grid place-items-center text-[0.9rem]"
+          aria-hidden
+          style={{ color: SESSION_TYPE_COLOR.group }}
+        >
+          ◎
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-baseline gap-1.5">
+            <span className="text-[0.82rem] font-bold text-ink truncate">
+              {roomTitle('group', size)}
+            </span>
+            <span title={`${focus.name} — ${focus.blurb}`} aria-label={focus.name}>
+              {focus.icon}
+            </span>
+          </div>
+          <div className="text-[0.67rem] text-ink-faint leading-snug truncate">
+            with {therapistName}
+            {head.group ? ` · ${head.group.totalEnergyCost} energy for the hour` : ''}
+          </div>
+        </div>
+        <span className="shrink-0 text-right" style={{ width: COL_GRADE }}>
+          <span className="text-[0.66rem] text-ink-faint">{countWord(size)} seen</span>
+        </span>
+        <span className="shrink-0" style={{ width: COL_DELTA }} aria-hidden />
+        <span
+          className="tabular text-[0.76rem] text-right text-ink-soft shrink-0"
+          style={{ width: COL_FEES }}
+        >
+          {formatMoney(fees)}
+        </span>
+      </div>
+      <div className="pl-[1.1rem]">
+        {hour.results.map((r) => (
+          <ResultRow key={`${r.sessionId}:${r.clientId}`} result={r} nested />
+        ))}
+      </div>
     </div>
   );
 }
@@ -581,15 +680,20 @@ export function DayEndScreen() {
   const breakthroughs = results.filter((r) => r.breakthrough && !r.cured);
   const regressions = results.filter((r) => r.regression);
   const everyone = [...player, ...staff];
+  // Hours, not people: a room of five is one hour of somebody's day.
+  const hours = foldHours(results);
+  const seen = results.length;
 
   return (
     <NotebookPage
       eyebrow={`${dayLabel} · the lamps are still on`}
       title={`Day ${day}, closed`}
       sub={
-        results.length === 0
+        hours.length === 0
           ? 'No hours ran today. The rent came due anyway — book someone in before you open tomorrow.'
-          : `${results.length} hour${results.length === 1 ? '' : 's'} in the room. Here is what they came to.`
+          : `${hours.length} hour${hours.length === 1 ? '' : 's'} in the room${
+              seen > hours.length ? `, ${seen} people seen` : ''
+            }. Here is what they came to.`
       }
       footer={
         <>
@@ -635,9 +739,13 @@ export function DayEndScreen() {
       ) : (
         <div className="flex flex-col">
           <ResultHeader />
-          {results.map((r) => (
-            <ResultRow key={r.sessionId} result={r} />
-          ))}
+          {hours.map((h) =>
+            h.results.length > 1 ? (
+              <RoomLedgerRow key={h.sessionId} hour={h} />
+            ) : (
+              <ResultRow key={h.sessionId} result={h.results[0]} />
+            ),
+          )}
         </div>
       )}
 
@@ -646,18 +754,32 @@ export function DayEndScreen() {
         <>
           <Divider label="Worth saying out loud" />
           <div className="flex flex-col gap-1.5">
+            {/* Keyed by person as well as session: a room can hand out two
+                breakthroughs in the same hour, and did. */}
             {cures.map((r) => (
-              <Callout key={`cure-${r.sessionId}`} tone="sage" icon={<Plant progress={100} size={30} />}>
+              <Callout
+                key={`cure-${r.sessionId}:${r.clientId}`}
+                tone="sage"
+                icon={<Plant progress={100} size={30} />}
+              >
                 <CureLine result={r} />
               </Callout>
             ))}
             {breakthroughs.map((r) => (
-              <Callout key={`bt-${r.sessionId}`} tone="amber" icon={<span className="text-lg">✨</span>}>
+              <Callout
+                key={`bt-${r.sessionId}:${r.clientId}`}
+                tone="amber"
+                icon={<span className="text-lg">✨</span>}
+              >
                 <BreakthroughLine result={r} />
               </Callout>
             ))}
             {regressions.map((r) => (
-              <Callout key={`reg-${r.sessionId}`} tone="brick" icon={<span className="text-lg">↘</span>}>
+              <Callout
+                key={`reg-${r.sessionId}:${r.clientId}`}
+                tone="brick"
+                icon={<span className="text-lg">↘</span>}
+              >
                 <RegressionLine result={r} />
               </Callout>
             ))}
@@ -672,7 +794,8 @@ export function DayEndScreen() {
           <StaffRow
             key={t.id}
             therapistId={t.id}
-            sessions={results.filter((r) => r.therapistId === t.id).length}
+            // Hours worked, not people seen — a room of five was one hour of it.
+            sessions={hours.filter((h) => h.results[0].therapistId === t.id).length}
           />
         ))}
       </div>

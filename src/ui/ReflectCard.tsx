@@ -6,6 +6,7 @@ import { formatMoney } from '../sim/util';
 import type { ArcChapter, GameState, OutcomeGrade, PortraitSeed, SessionResult } from '../sim/types';
 import { useSim, useSimShallow, useUi } from '../store';
 import { Plant, Portrait } from './Portrait';
+import { SESSION_TYPE_COLOR, andList, countWord, roomTitle } from './rooms';
 
 /**
  * The end-of-session card. Fifty minutes of somebody's life, accounted for.
@@ -17,6 +18,8 @@ import { Plant, Portrait } from './Portrait';
  */
 
 const DURATION_MS = 6000;
+/** A room of five is five arcs to read. Each extra person buys a little longer. */
+const PER_EXTRA_MEMBER_MS = 1100;
 const MAX_QUEUE = 8;
 
 /**
@@ -52,10 +55,25 @@ interface ClientBits {
   chapter: ArcChapter;
 }
 
+/**
+ * One card per *hour*, not per person.
+ *
+ * The sim emits SESSION_COMPLETED once per member, because a group is several
+ * arcs that happen to share fifty minutes and each one is owed its own
+ * explanation. Six separate toasts for one afternoon would bury the day, so
+ * results arriving under the same `sessionId` fold into a single reflection —
+ * and every one of them is rendered inside it. Nobody's hour goes unreported.
+ */
+interface Reflection {
+  sessionId: string;
+  results: SessionResult[];
+}
+
 export function ReflectCard() {
-  const [queue, setQueue] = useState<SessionResult[]>([]);
+  const [queue, setQueue] = useState<Reflection[]>([]);
   const [hovered, setHovered] = useState(false);
   const [barSpent, setBarSpent] = useState(false);
+  const [openMemberId, setOpenMemberId] = useState('');
 
   const screen = useUi((u) => u.screen);
   const calm = useSim((s) => s.settings.calmMode || s.settings.reducedMotion);
@@ -65,7 +83,16 @@ export function ReflectCard() {
   useEffect(
     () =>
       bus.on('SESSION_COMPLETED', ({ result }) => {
-        setQueue((q) => (q.length >= MAX_QUEUE ? [...q.slice(1), result] : [...q, result]));
+        setQueue((q) => {
+          // The room's results land back to back in one tick, so the open
+          // reflection for this session is always the last one in the queue.
+          const last = q[q.length - 1];
+          if (last && last.sessionId === result.sessionId) {
+            return [...q.slice(0, -1), { ...last, results: [...last.results, result] }];
+          }
+          const next: Reflection = { sessionId: result.sessionId, results: [result] };
+          return q.length >= MAX_QUEUE ? [...q.slice(1), next] : [...q, next];
+        });
       }),
     [],
   );
@@ -75,18 +102,20 @@ export function ReflectCard() {
     if (screen !== 'playing') setQueue([]);
   }, [screen]);
 
-  const current: SessionResult | undefined = queue[0];
+  const current: Reflection | undefined = queue[0];
   const dismiss = useCallback(() => setQueue((q) => q.slice(1)), []);
 
   // ── The six-second life of a card, held on hover or behind a modal ────────
   const remaining = useRef(DURATION_MS);
   const startedAt = useRef(0);
   const sessionId = current?.sessionId ?? '';
+  const memberCount = current?.results.length ?? 1;
   const held = hovered || modalUp;
 
   useEffect(() => {
-    remaining.current = DURATION_MS;
-  }, [sessionId]);
+    remaining.current = DURATION_MS + Math.max(0, memberCount - 1) * PER_EXTRA_MEMBER_MS;
+    setOpenMemberId('');
+  }, [sessionId, memberCount]);
 
   useEffect(() => {
     if (!sessionId || held) return;
@@ -107,8 +136,13 @@ export function ReflectCard() {
     return () => window.clearTimeout(id);
   }, [sessionId, held, calm]);
 
-  const clientId = current?.clientId ?? '';
-  const therapistId = current?.therapistId ?? '';
+  // The hour's spokesperson: in a room, whoever set its pace — the sim chose the
+  // technique for them, so their sentence is the one that describes the hour.
+  const head =
+    current?.results.find((r) => r.group && r.clientId === r.group.pacedByClientId) ??
+    current?.results[0];
+  const clientId = head?.clientId ?? '';
+  const therapistId = head?.therapistId ?? '';
 
   const client = useSimShallow<ClientBits | null>((s: GameState) => {
     const c = s.clients.find((x) => x.id === clientId);
@@ -124,13 +158,33 @@ export function ReflectCard() {
   });
   const therapistName = useSim((s) => s.therapists.find((t) => t.id === therapistId)?.name ?? 'the practice');
 
-  if (screen !== 'playing' || !current || !client) return null;
+  if (screen !== 'playing' || !current || !head) return null;
 
-  const grade = GRADE_STYLE[current.grade];
-  const focus = FOCUSES[current.focus];
-  const delta = current.progressDelta;
+  const results = current.results;
+  const isRoom = results.length > 1;
+  if (!isRoom && !client) return null;
+
+  const grade = GRADE_STYLE[head.grade];
+  const focus = FOCUSES[head.focus];
+  const delta = head.progressDelta;
   const queued = queue.length - 1;
-  const celebratory = !calm && (current.breakthrough || current.cured);
+  const cured = results.filter((r) => r.cured);
+  const chapterTurns = results.filter((r) => r.chapterAdvanced && !r.cured);
+  const celebratory = !calm && results.some((r) => r.breakthrough || r.cured);
+  const billed = results.reduce((a, r) => a + r.revenue, 0);
+
+  // A room has no single grade, so its lit edge is banded — one segment per
+  // person, in their own colour. Inventing an average would be a made-up number.
+  const edge = isRoom
+    ? `linear-gradient(180deg, ${results
+        .map((r, i) => {
+          const c = GRADE_STYLE[r.grade].color;
+          const a = ((i / results.length) * 100).toFixed(1);
+          const b = (((i + 1) / results.length) * 100).toFixed(1);
+          return `${c} ${a}%, ${c} ${b}%`;
+        })
+        .join(', ')})`
+    : `linear-gradient(180deg, color-mix(in oklab, ${grade.color} 55%, white) 0%, ${grade.color} 40%, color-mix(in oklab, ${grade.color} 82%, black) 100%)`;
 
   return (
     <div
@@ -143,16 +197,17 @@ export function ReflectCard() {
       aria-live="polite"
     >
       <div className="paper relative overflow-hidden">
-        {celebratory && <Sparkles amber={current.breakthrough} />}
+        {celebratory && <Sparkles amber={results.some((r) => r.breakthrough)} />}
 
         {/* the grade, as a lit edge */}
         <div
           className="absolute inset-y-0 left-0 w-[4px]"
           style={{
-            background: `linear-gradient(180deg, color-mix(in oklab, ${grade.color} 55%, white) 0%, ${grade.color} 40%, color-mix(in oklab, ${grade.color} 82%, black) 100%)`,
-            boxShadow: grade.glow
-              ? `1px 0 0 color-mix(in oklab, ${grade.color} 40%, transparent), 0 0 18px 1px color-mix(in oklab, ${grade.color} 62%, transparent)`
-              : `1px 0 0 color-mix(in oklab, ${grade.color} 28%, transparent)`,
+            background: edge,
+            boxShadow:
+              grade.glow && !isRoom
+                ? `1px 0 0 color-mix(in oklab, ${grade.color} 40%, transparent), 0 0 18px 1px color-mix(in oklab, ${grade.color} 62%, transparent)`
+                : `1px 0 0 color-mix(in oklab, ${grade.color} 28%, transparent)`,
           }}
           aria-hidden
         />
@@ -169,31 +224,48 @@ export function ReflectCard() {
 
         {/* ── Who, and how it went ───────────────────────────────────────── */}
         <div className="relative pl-4 pr-2.5 pt-3 pb-2 flex items-start gap-2.5">
-          <Portrait
-            seed={client.portrait}
-            size={40}
-            glow={current.breakthrough}
-            mood={current.grade === 'poor' ? 'sad' : current.quality > 0.79 ? 'happy' : 'neutral'}
-            title={`${client.handle}, age ${client.age}`}
-          />
+          {client ? (
+            <Portrait
+              seed={client.portrait}
+              size={40}
+              glow={head.breakthrough}
+              mood={head.grade === 'poor' ? 'sad' : head.quality > 0.79 ? 'happy' : 'neutral'}
+              title={`${client.handle}, age ${client.age}`}
+            />
+          ) : null}
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-1.5 flex-wrap">
-              <span className="display text-[0.98rem] leading-tight text-ink">{client.handle}</span>
-              <span
-                className={`text-[0.64rem] font-extrabold uppercase tracking-[0.08em] px-2 py-[2px] rounded-full ${
-                  grade.glow && !calm ? 'tt-pill-glow' : ''
-                }`}
-                style={{
-                  color: `color-mix(in oklab, ${grade.color} 84%, var(--color-ink))`,
-                  background: `linear-gradient(180deg, color-mix(in oklab, ${grade.color} ${grade.tint * 0.7}%, transparent) 0%, color-mix(in oklab, ${grade.color} ${grade.tint}%, transparent) 100%)`,
-                  boxShadow: grade.glow
-                    ? `inset 0 0 0 1px color-mix(in oklab, ${grade.color} ${grade.edge}%, transparent), inset 0 1px 0 rgba(255,253,246,0.6), 0 0 16px -3px color-mix(in oklab, ${grade.color} 78%, transparent)`
-                    : `inset 0 0 0 1px color-mix(in oklab, ${grade.color} ${grade.edge}%, transparent), inset 0 1px 0 rgba(255,253,246,0.55)`,
-                  textShadow: '0 1px 0 rgba(255,253,246,0.6)',
-                }}
-              >
-                {grade.label}
+              <span className="display text-[0.98rem] leading-tight text-ink">
+                {isRoom ? roomTitle('group', results.length) : client?.handle}
               </span>
+              {isRoom ? (
+                <span
+                  className="text-[0.64rem] font-extrabold uppercase tracking-[0.08em] px-2 py-[2px] rounded-full"
+                  style={{
+                    color: `color-mix(in oklab, ${SESSION_TYPE_COLOR.group} 84%, var(--color-ink))`,
+                    background: `color-mix(in oklab, ${SESSION_TYPE_COLOR.group} 13%, transparent)`,
+                    boxShadow: `inset 0 0 0 1px color-mix(in oklab, ${SESSION_TYPE_COLOR.group} 34%, transparent), inset 0 1px 0 rgba(255,253,246,0.55)`,
+                  }}
+                >
+                  ◎ {countWord(results.length)} seen
+                </span>
+              ) : (
+                <span
+                  className={`text-[0.64rem] font-extrabold uppercase tracking-[0.08em] px-2 py-[2px] rounded-full ${
+                    grade.glow && !calm ? 'tt-pill-glow' : ''
+                  }`}
+                  style={{
+                    color: `color-mix(in oklab, ${grade.color} 84%, var(--color-ink))`,
+                    background: `linear-gradient(180deg, color-mix(in oklab, ${grade.color} ${grade.tint * 0.7}%, transparent) 0%, color-mix(in oklab, ${grade.color} ${grade.tint}%, transparent) 100%)`,
+                    boxShadow: grade.glow
+                      ? `inset 0 0 0 1px color-mix(in oklab, ${grade.color} ${grade.edge}%, transparent), inset 0 1px 0 rgba(255,253,246,0.6), 0 0 16px -3px color-mix(in oklab, ${grade.color} 78%, transparent)`
+                      : `inset 0 0 0 1px color-mix(in oklab, ${grade.color} ${grade.edge}%, transparent), inset 0 1px 0 rgba(255,253,246,0.55)`,
+                    textShadow: '0 1px 0 rgba(255,253,246,0.6)',
+                  }}
+                >
+                  {grade.label}
+                </span>
+              )}
             </div>
             <div className="text-[0.7rem] text-ink-faint leading-tight truncate">
               {therapistName} · <span aria-hidden>{focus.icon}</span> {focus.name}
@@ -222,21 +294,30 @@ export function ReflectCard() {
 
         {/* ── The hour in a sentence, beside the plant it grew ───────────── */}
         <div className="pl-4 pr-3.5 pb-2.5 flex items-start gap-3">
-          <p className="display text-[0.95rem] leading-relaxed text-ink flex-1">{current.narrative}</p>
-          <div className="shrink-0 flex flex-col items-center pt-0.5">
-            <Plant progress={client.progress} species={client.plant} size={44} />
-            <span
-              className="tabular text-[0.74rem] font-bold leading-none mt-0.5"
-              style={{ color: delta >= 0 ? 'var(--color-sage-deep)' : 'var(--color-brick)' }}
-              title={`Progress is now ${Math.round(client.progress)} of 100 · ${CHAPTER_LABEL[client.chapter]}`}
-            >
-              {delta >= 0 ? '+' : '−'}
-              {Math.abs(delta).toFixed(1)}
-            </span>
+          <div className="flex-1 min-w-0">
+            {isRoom && client ? (
+              <div className="text-[0.55rem] font-extrabold uppercase tracking-[0.13em] text-ink-faint mb-0.5">
+                The room, at {client.handle}&rsquo;s pace
+              </div>
+            ) : null}
+            <p className="display text-[0.95rem] leading-relaxed text-ink">{head.narrative}</p>
           </div>
+          {client ? (
+            <div className="shrink-0 flex flex-col items-center pt-0.5">
+              <Plant progress={client.progress} species={client.plant} size={44} />
+              <span
+                className="tabular text-[0.74rem] font-bold leading-none mt-0.5"
+                style={{ color: delta >= 0 ? 'var(--color-sage-deep)' : 'var(--color-brick)' }}
+                title={`Progress is now ${Math.round(client.progress)} of 100 · ${CHAPTER_LABEL[client.chapter]}`}
+              >
+                {delta >= 0 ? '+' : '−'}
+                {Math.abs(delta).toFixed(1)}
+              </span>
+            </div>
+          ) : null}
         </div>
 
-        {current.beat && (
+        {head.beat && !isRoom && (
           <p
             className="mx-4 mb-2.5 pl-3 pr-2 py-1.5 text-[0.8rem] italic leading-relaxed text-ink-soft rounded-r-[8px]"
             style={{
@@ -245,102 +326,79 @@ export function ReflectCard() {
                 'linear-gradient(90deg, color-mix(in oklab, var(--color-amber-glow) 22%, transparent) 0%, transparent 78%)',
             }}
           >
-            {current.beat.text}
+            {head.beat.text}
           </p>
         )}
 
-        {/* ── Why ────────────────────────────────────────────────────────── */}
-        {current.reasons.length > 0 && (
+        {/* ── Everyone in the room ───────────────────────────────────────── */}
+        {isRoom ? (
           <div className="mx-4 mb-2.5 pt-2 relative">
-            <span
-              aria-hidden
-              className="absolute inset-x-0 top-0 h-px"
-              style={{
-                background:
-                  'linear-gradient(90deg, color-mix(in oklab, var(--color-ink) 15%, transparent) 0%, color-mix(in oklab, var(--color-ink) 15%, transparent) 72%, transparent 100%)',
-              }}
-            />
+            <RuleAbove />
             <div className="text-[0.55rem] font-extrabold uppercase tracking-[0.13em] text-ink-faint mb-1">
-              Why the hour went this way
+              What the hour came to, for each of them
             </div>
-            <ul className="space-y-[3px]">
-              {current.reasons.map((r, i) => {
-                const color = REASON_COLOR[r.kind];
-                // A diverging bar off a centre line: helped to the right, cost
-                // to the left. Same scale for every row, so lengths compare.
-                const mag = Math.max(2, Math.min(1, Math.abs(r.delta) / 0.22) * (HALF - 2));
-                const positive = r.delta >= 0;
-                return (
-                  <li key={`${r.label}-${i}`} className="flex items-center gap-2 text-[0.7rem] leading-tight">
-                    <span
-                      className="flex-1 truncate"
-                      style={{ color: r.kind === 'neutral' ? 'var(--color-ink-soft)' : color }}
-                      title={r.label}
-                    >
-                      {r.label}
-                    </span>
-                    {advanced && (
-                      <span className="tabular text-[0.62rem] text-ink-faint shrink-0">
-                        {r.delta >= 0 ? '+' : '−'}
-                        {Math.abs(r.delta).toFixed(3)}
-                      </span>
-                    )}
-                    <span
-                      className="shrink-0 relative rounded-full"
-                      style={{
-                        width: HALF * 2,
-                        height: 7,
-                        background: 'color-mix(in oklab, var(--color-ink) 7%, transparent)',
-                        boxShadow: 'inset 0 1px 1px color-mix(in oklab, var(--color-ink) 13%, transparent)',
-                      }}
-                      aria-hidden
-                    >
-                      {/* the centre line the bars grow from */}
-                      <span
-                        className="absolute inset-y-[1px] w-px"
-                        style={{
-                          left: HALF,
-                          background: 'color-mix(in oklab, var(--color-ink) 26%, transparent)',
-                        }}
-                      />
-                      <span
-                        className="absolute top-[1px] bottom-[1px] rounded-full"
-                        style={{
-                          width: mag,
-                          left: positive ? HALF : HALF - mag,
-                          background:
-                            r.kind === 'neutral'
-                              ? `color-mix(in oklab, ${color} 55%, transparent)`
-                              : `linear-gradient(180deg, color-mix(in oklab, ${color} 62%, white) 0%, ${color} 100%)`,
-                          boxShadow: r.kind === 'neutral' ? undefined : `0 1px 1px -1px ${color}`,
-                        }}
-                      />
-                    </span>
-                  </li>
-                );
-              })}
+            <ul className="flex flex-col">
+              {results.map((r) => (
+                <MemberRow
+                  key={r.clientId}
+                  result={r}
+                  advanced={advanced}
+                  open={openMemberId === r.clientId}
+                  onToggle={() => setOpenMemberId((id) => (id === r.clientId ? '' : r.clientId))}
+                />
+              ))}
             </ul>
           </div>
+        ) : (
+          head.reasons.length > 0 && (
+            <div className="mx-4 mb-2.5 pt-2 relative">
+              <RuleAbove />
+              <div className="text-[0.55rem] font-extrabold uppercase tracking-[0.13em] text-ink-faint mb-1">
+                Why the hour went this way
+              </div>
+              <ReasonBars reasons={head.reasons} advanced={advanced} />
+            </div>
+          )
         )}
 
         {/* ── What it changed ────────────────────────────────────────────── */}
-        {(current.cured || current.chapterAdvanced || current.revenue > 0) && (
+        {(cured.length > 0 || chapterTurns.length > 0 || billed > 0) && (
           <div className="px-4 pb-3 flex flex-wrap items-center gap-1.5">
-            {current.cured && (
+            {cured.length > 0 && (
               <Callout icon="🌼" color="var(--color-sage-deep)">
-                Treatment complete — a good goodbye
+                {isRoom ? (
+                  <>
+                    <HandleList ids={cured.map((r) => r.clientId)} /> finished — a good goodbye
+                  </>
+                ) : (
+                  'Treatment complete — a good goodbye'
+                )}
               </Callout>
             )}
-            {current.chapterAdvanced && !current.cured && (
-              <Callout icon="📖" color="var(--color-amber-deep)">
-                Now in {CHAPTER_LABEL[current.chapterAdvanced]}
+            {/* Every chapter that turned, not just the pacer's: a room can move
+                two people into Work in the same hour, and both are news. */}
+            {chapterTurns.map((r) => (
+              <Callout key={`ch-${r.clientId}`} icon="📖" color="var(--color-amber-deep)">
+                {isRoom ? (
+                  <>
+                    <HandleList ids={[r.clientId]} /> is now in{' '}
+                  </>
+                ) : (
+                  'Now in '
+                )}
+                {CHAPTER_LABEL[r.chapterAdvanced!]}
               </Callout>
-            )}
-            {current.revenue > 0 && (
+            ))}
+            {billed > 0 && (
               <Callout icon="💵" color="var(--color-ink-soft)">
-                {formatMoney(current.revenue)} billed
+                {formatMoney(billed)} billed
               </Callout>
             )}
+            {isRoom && head.group ? (
+              <Callout icon="🕯️" color="var(--color-plum-deep)">
+                {head.group.totalEnergyCost} energy for the hour
+              </Callout>
+            ) : null}
           </div>
         )}
 
@@ -358,6 +416,173 @@ export function ReflectCard() {
         )}
       </div>
     </div>
+  );
+}
+
+/** "K.O. and R.T." — names looked up live, so a cure reads as people. */
+function HandleList({ ids }: { ids: string[] }) {
+  const key = ids.join(',');
+  const joined = useSim((s) =>
+    key
+      .split(',')
+      .map((id) => s.clients.find((c) => c.id === id)?.handle ?? 'Someone')
+      .join('|'),
+  );
+  return <>{andList(joined.split('|'))}</>;
+}
+
+/** The hairline that separates the card's body from its explanation. */
+function RuleAbove() {
+  return (
+    <span
+      aria-hidden
+      className="absolute inset-x-0 top-0 h-px"
+      style={{
+        background:
+          'linear-gradient(90deg, color-mix(in oklab, var(--color-ink) 15%, transparent) 0%, color-mix(in oklab, var(--color-ink) 15%, transparent) 72%, transparent 100%)',
+      }}
+    />
+  );
+}
+
+/**
+ * One person in a room. Collapsed it carries their grade and the distance they
+ * actually moved; expanded it carries their sentence and the full reasons list —
+ * the same explanation a solo hour gets, for every chair.
+ */
+function MemberRow({
+  result,
+  advanced,
+  open,
+  onToggle,
+}: {
+  result: SessionResult;
+  advanced: boolean;
+  open: boolean;
+  onToggle: () => void;
+}) {
+  const handle = useSim((s) => s.clients.find((c) => c.id === result.clientId)?.handle ?? '—');
+  const g = GRADE_STYLE[result.grade];
+  const d = result.progressDelta;
+
+  return (
+    <li>
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        className="w-full flex items-center gap-2 py-[3px] text-left rounded-[6px] hover:bg-[color-mix(in_oklab,var(--color-ink)_5%,transparent)] transition focus-visible:outline-2 focus-visible:outline-amber"
+      >
+        <span aria-hidden className="w-3 text-[0.6rem] text-ink-faint shrink-0">
+          {open ? '▾' : '▸'}
+        </span>
+        <span className="text-[0.76rem] font-bold text-ink truncate flex-1 min-w-0">{handle}</span>
+        {result.breakthrough ? <span title="Breakthrough">✨</span> : null}
+        {result.regression ? <span title="Lost ground">↘</span> : null}
+        <span
+          className="text-[0.62rem] font-extrabold uppercase tracking-[0.06em] shrink-0"
+          style={{ color: g.color }}
+        >
+          {g.label}
+        </span>
+        <span
+          className="tabular text-[0.74rem] font-bold shrink-0 w-[3.1rem] text-right"
+          style={{ color: d >= 0 ? 'var(--color-sage-deep)' : 'var(--color-brick)' }}
+        >
+          {d >= 0 ? '+' : '−'}
+          {Math.abs(d).toFixed(1)}
+        </span>
+      </button>
+      {open ? (
+        <div className="pl-5 pr-1 pb-2 fade-in">
+          <p className="text-[0.78rem] leading-relaxed text-ink-soft italic mb-1.5">{result.narrative}</p>
+          {result.beat ? (
+            <p
+              className="mb-1.5 pl-2.5 pr-2 py-1 text-[0.76rem] italic leading-relaxed text-ink-soft rounded-r-[8px]"
+              style={{
+                borderLeft: '2px solid color-mix(in oklab, var(--color-amber) 60%, transparent)',
+                background:
+                  'linear-gradient(90deg, color-mix(in oklab, var(--color-amber-glow) 22%, transparent) 0%, transparent 78%)',
+              }}
+            >
+              {result.beat.text}
+            </p>
+          ) : null}
+          <ReasonBars reasons={result.reasons} advanced={advanced} />
+        </div>
+      ) : null}
+    </li>
+  );
+}
+
+/**
+ * The diverging reason bars — helped to the right, cost to the left, one scale
+ * for every row so lengths compare. Rendered in full: this list is the
+ * no-hidden-punishments contract in visible form.
+ */
+function ReasonBars({
+  reasons,
+  advanced,
+}: {
+  reasons: SessionResult['reasons'];
+  advanced: boolean;
+}) {
+  return (
+    <ul className="space-y-[3px]">
+      {reasons.map((r, i) => {
+        const color = REASON_COLOR[r.kind];
+        const mag = Math.max(2, Math.min(1, Math.abs(r.delta) / 0.22) * (HALF - 2));
+        const positive = r.delta >= 0;
+        return (
+          <li key={`${r.label}-${i}`} className="flex items-center gap-2 text-[0.7rem] leading-tight">
+            <span
+              className="flex-1 truncate"
+              style={{ color: r.kind === 'neutral' ? 'var(--color-ink-soft)' : color }}
+              title={r.label}
+            >
+              {r.label}
+            </span>
+            {advanced && (
+              <span className="tabular text-[0.62rem] text-ink-faint shrink-0">
+                {r.delta >= 0 ? '+' : '−'}
+                {Math.abs(r.delta).toFixed(3)}
+              </span>
+            )}
+            <span
+              className="shrink-0 relative rounded-full"
+              style={{
+                width: HALF * 2,
+                height: 7,
+                background: 'color-mix(in oklab, var(--color-ink) 7%, transparent)',
+                boxShadow: 'inset 0 1px 1px color-mix(in oklab, var(--color-ink) 13%, transparent)',
+              }}
+              aria-hidden
+            >
+              {/* the centre line the bars grow from */}
+              <span
+                className="absolute inset-y-[1px] w-px"
+                style={{
+                  left: HALF,
+                  background: 'color-mix(in oklab, var(--color-ink) 26%, transparent)',
+                }}
+              />
+              <span
+                className="absolute top-[1px] bottom-[1px] rounded-full"
+                style={{
+                  width: mag,
+                  left: positive ? HALF : HALF - mag,
+                  background:
+                    r.kind === 'neutral'
+                      ? `color-mix(in oklab, ${color} 55%, transparent)`
+                      : `linear-gradient(180deg, color-mix(in oklab, ${color} 62%, white) 0%, ${color} 100%)`,
+                  boxShadow: r.kind === 'neutral' ? undefined : `0 1px 1px -1px ${color}`,
+                }}
+              />
+            </span>
+          </li>
+        );
+      })}
+    </ul>
   );
 }
 

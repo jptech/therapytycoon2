@@ -26,6 +26,7 @@ import {
   type ClientSortKey,
 } from '../../store';
 import { Plant, Portrait } from '../Portrait';
+import { SESSION_TYPE_COLOR, SessionTypeChip, companionLine } from '../rooms';
 import { Button, Chip, EmptyState, Meter, PanelShell, RiskDot, Tooltip } from '../primitives';
 
 /**
@@ -72,12 +73,29 @@ const PAYMENT: Record<PaymentSource, { label: string; color?: string; note: stri
   },
 };
 
-const SESSION_TYPE_LABEL: Record<SessionType, string> = {
-  individual: 'Individual',
-  couples: 'Couples',
-  family: 'Family',
-  group: 'Group',
-};
+/**
+ * Companions travel through `useSimShallow` as one joined string: a nested array
+ * fails the shallow compare on every revision and would re-render the whole
+ * caseload for nothing. `|` because a handle is initials and never contains one.
+ */
+function splitPartners(joined: string): string[] {
+  return joined ? joined.split('|') : [];
+}
+
+/** The "and who else" line, on both a case card and a waiting-room card. */
+function CompanionLine({ type, line }: { type: SessionType; line: string }) {
+  return (
+    <p
+      className="text-[0.73rem] leading-snug mt-1 flex items-start gap-1.5"
+      style={{ color: `color-mix(in oklab, ${SESSION_TYPE_COLOR[type]} 74%, var(--color-ink))` }}
+    >
+      <span aria-hidden className="mt-[1px]">
+        {type === 'group' ? '◎' : '🤝'}
+      </span>
+      <span>{line}</span>
+    </p>
+  );
+}
 
 /** The order lives in UiState so it survives closing the panel — see store.ts. */
 type SortKey = ClientSortKey;
@@ -415,7 +433,7 @@ function CaseCard({ clientId }: { clientId: string }) {
       patience: c.patience,
       daysSince: c.daysSinceSession,
       sessionType: c.sessionType,
-      partners: (c.partnerHandles ?? []).join(', '),
+      partners: (c.partnerHandles ?? []).join('|'),
       portrait: c.portrait,
       plant: c.plant,
       risk: riskBadge(s, c),
@@ -431,6 +449,8 @@ function CaseCard({ clientId }: { clientId: string }) {
   const risky = d.risk === 'risk';
   const mood = portraitMood(d.stability, d.progress);
   const pay = PAYMENT[d.payment];
+  const partners = splitPartners(d.partners);
+  const companion = companionLine(d.sessionType, partners);
   const patienceColor =
     d.risk === 'risk'
       ? 'var(--color-brick)'
@@ -478,6 +498,10 @@ function CaseCard({ clientId }: { clientId: string }) {
             <span className="text-ink-faint"> · {SEVERITY_LABELS[d.severity]}</span>
           </div>
 
+          {/* Who else is in the hour. A couples case is one file and two people;
+              a card that never says the second name is telling half of it. */}
+          {companion ? <CompanionLine type={d.sessionType} line={companion} /> : null}
+
           <div className="flex flex-wrap gap-1 mt-1.5">
             {conditionList(d.comorbidities).map((co) => (
               <Chip key={co} title="Alongside the presenting problem">
@@ -489,11 +513,7 @@ function CaseCard({ clientId }: { clientId: string }) {
                 Complex
               </Chip>
             ) : null}
-            {d.sessionType !== 'individual' ? (
-              <Chip color="var(--color-amber-deep)" title={d.partners ? `With ${d.partners}` : undefined}>
-                {SESSION_TYPE_LABEL[d.sessionType]}
-              </Chip>
-            ) : null}
+            <SessionTypeChip type={d.sessionType} partners={partners} />
             <Chip color={pay.color} title={pay.note}>
               {d.payment === 'sliding_scale' ? '🌿 ' : ''}
               {pay.label}
@@ -858,7 +878,7 @@ function WaitCard({
       referredBy: c.referredBy ?? '',
       waiting: c.daysSinceSession,
       sessionType: c.sessionType,
-      partners: (c.partnerHandles ?? []).join(', '),
+      partners: (c.partnerHandles ?? []).join('|'),
       firstLine: c.story.length ? c.story[c.story.length - 1].text : '',
       stability: c.stability,
     };
@@ -866,6 +886,8 @@ function WaitCard({
 
   if (!d) return null;
   const pay = PAYMENT[d.payment];
+  const partners = splitPartners(d.partners);
+  const companion = companionLine(d.sessionType, partners);
 
   return (
     <article className={`card-warm px-3 py-3 ${calm ? '' : 'rise-in'}`}>
@@ -884,6 +906,7 @@ function WaitCard({
             {CONDITION_LABELS[d.condition]}
             <span className="text-ink-faint"> · {SEVERITY_LABELS[d.severity]}</span>
           </div>
+          {companion ? <CompanionLine type={d.sessionType} line={companion} /> : null}
           <div className="flex flex-wrap gap-1 mt-1.5">
             {conditionList(d.comorbidities).map((co) => (
               <Chip key={co} title="Alongside the presenting problem">
@@ -895,11 +918,7 @@ function WaitCard({
                 Complex
               </Chip>
             ) : null}
-            {d.sessionType !== 'individual' ? (
-              <Chip color="var(--color-amber-deep)" title={d.partners ? `With ${d.partners}` : undefined}>
-                {SESSION_TYPE_LABEL[d.sessionType]}
-              </Chip>
-            ) : null}
+            <SessionTypeChip type={d.sessionType} partners={partners} />
             <Chip color={pay.color} title={pay.note}>
               {d.payment === 'sliding_scale' ? '🌿 ' : ''}
               {pay.label} · ${d.rate}

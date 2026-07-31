@@ -43,6 +43,11 @@ tools/
   balance.ts      the harness that runs it thousands of times
   playtest.ts     one narrated run; --record writes a replay log
   replay.ts       replays a log, --verify checks it reproduces
+
+e2e/
+  game.ts         the driver: clicks by accessible name, reads state via window.__tt
+  *.spec.ts       one full day, the three layout faults, the two clock contracts
+  vite.e2e.config.ts   the project's dev config with HMR off, on its own port
 ```
 
 ## The sim contract
@@ -171,6 +176,15 @@ Versioned envelopes with ordered migrations (`SAVE_VERSION` in `balance.ts`). `m
 save from its version to the current one, then defensively fills anything a hand-edited file is
 missing. There is a five-slot autosave ring, plus export/import as a downloadable JSON file, so
 nothing depends on browser storage surviving.
+
+## Browser tests
+
+`bun run test:e2e` drives a real Chromium through one full day and through the layout and clock
+contracts that only exist once there is a page — a portalled tooltip actually escaping the HUD's
+clip, a panel actually sitting below it, the clock actually stopping for a decision and actually
+starting again. Everything in `e2e/` clicks by accessible name and asserts against `window.__tt`.
+Run it after touching `src/ui`, `src/store.ts`, `src/App.tsx`, or anything about layout, portals
+or the day loop. See [TESTING.md](TESTING.md).
 
 ## Adding a system
 

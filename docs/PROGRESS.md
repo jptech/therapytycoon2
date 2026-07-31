@@ -241,6 +241,62 @@ the next person to read the curves deserves to know which of them moved for a pa
 
 ---
 
+## Phase 9 — Three certifications that bought nothing
+
+`SessionType` had been fully typed since Phase 0. Three certifications carried
+`mods.unlockSessionType`, `generateClient` could produce every kind, and `resolveSession` already
+multiplied progress and revenue per type. Nothing ever passed `sessionType` to `generateClient`,
+so none of it had ever run. The Group Room cost $3,800 and changed nothing a player could see.
+
+**The referral path was an afternoon. The reason it had not been done was the other half.**
+`ScheduledSession` held one `clientId`, so a "group" client was an ordinary client booking an
+ordinary slot at 0.55× revenue for 0.78× progress — strictly worse than an individual on every
+axis. Wiring the referral in without touching the schedule would have shipped a $3,800 purchase
+whose only effect is to make your practice worse, which is worse than shipping nothing, because
+the player pays to find out. So a group session had to hold several people: `memberIds` on the
+session, one `SessionResult` per member, and a seam (`sessionMembers`, `sessionIncludes`,
+`detachClientFromSchedule`) so that every existing single-client path stays byte-identical.
+
+**Couples and family were already right and were left alone.** A couple is one case with one arc
+and one bill — that is what `partnerHandles` and the 1.5× rate always meant. What they were
+missing was a *cost*: 1.5× the fee for 1.12× progress made the certification a pure upgrade whose
+only question was "why not sooner". The cost that fits the fiction is the alliance — two people
+have to trust you — and because rapport gates progress through the whole Trust chapter, it lands
+as "slow to get going, then faster", which is what couples work actually is.
+
+**The measurement nearly went out wrong twice.**
+
+The first sweep showed Standard accreditation falling 32/40 → 29/40 and Challenge collapses
+17/40 → 10/40, and it would have been easy to write that up as the price of session types. It was
+not. Rewriting the scheduler's energy forecast to use the *real* per-session cost — which is
+obviously more correct — also made it subtract the cost of the hour being considered, which the
+old flat estimate never did. That one-session-stricter reserve was doing all of it. It is now
+`SCHEDULER_ENERGY_ESTIMATE`, deliberately left defending the reserve one session late, with the
+measured cost of fixing it recorded in docs/BALANCE.md. A correct change is still the wrong change
+when it rides in on somebody else's.
+
+The second was quieter. A reason line that explains a 22% haircut on every group session is
+exactly the kind of number the reasons array exists to carry — and it was being truncated off the
+end of it, because `slice(0, 9)` kept the quality breakdown and dropped everything appended after
+it. Which meant regressions and the trust gate had *always* been at risk of vanishing from the
+card on a session with a busy breakdown. The array is now two lists: what happened to this hour
+first, why it went that way second.
+
+**One latent bug fell out of the noise.** A client's chapter is derived from their progress, and
+`applyEffect` moved progress without re-deriving it — so an event could leave somebody sitting in
+the Work chapter at 78%, drawing the wrong arc beats and being offered the wrong techniques. It
+had been there the whole time; it only surfaced because a shifted rng stream made an invariant
+test finally land on it. Fixed at the source, one line, in `eventsys.ts`.
+
+**And `bun run playtest` could not see any of it.** The narrated run — the tool that exists to
+catch what statistics smooth away — never bought an upgrade, so it could never reach a
+certification. It buys them now, cheapest first, and prints a group as one room rather than six
+sessions. The first group in the seed-2024 run lands on day 113 with two people in it and is
+running rooms of six by day 138, with the roster turning over as people finish. That is the check
+that mattered, and it is not one the harness could have made.
+
+---
+
 ## What I would tell the next person
 
 **The harness is the product.** Every serious balance problem in this build was found by reading a

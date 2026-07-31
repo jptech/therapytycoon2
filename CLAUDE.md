@@ -7,6 +7,7 @@ PixiJS v8 · Zustand · Tailwind v4. **Package manager and runtime is `bun`, not
 bun run dev          # dev server (port 5199 via .claude/launch.json)
 bun run typecheck    # tsc --noEmit — must be 0 before you claim done
 bun run test         # vitest — sim formulas, liveness, saves, content integrity
+bun run test:e2e     # Playwright — one full day in a real browser; see docs/TESTING.md
 bun run balance      # headless balance harness — READ docs/BALANCE.md FIRST
 bun run playtest     # narrated single run — the fastest way to see a change
 bun run replay       # replay a recorded action log; --verify checks it reproduces
@@ -95,6 +96,14 @@ subject. **If you add a blocking modal, add its predicate there and extend
 `src/sim/stall.test.ts`.** Never inline the check in a component. A watchdog in `App.tsx` and the
 error boundary in `main.tsx` are backstops, not permission to be careless.
 
+**A session is a room, not a chair.** `ScheduledSession.clientId` is the seat it is filed under;
+a group session carries `memberIds` and resolves once per member into `session.results`, all of
+which reach `lastDayResults`. Read the room through `sessionMembers()` / `sessionIncludes()` /
+`sessionMemberClients()` in `src/sim/session.ts`, and take somebody out of the day with
+`detachClientFromSchedule()` — a cure or a dropout must empty one chair, not cancel everyone
+else's hour. Any new `schedule.filter(x => x.clientId === ...)` is a bug waiting for the first
+group booking. `src/sim/sessiontypes.test.ts` guards the seam.
+
 **Floating UI must portal to `document.body`.** The HUD strip clips its overflow *and* creates a
 stacking context via `backdrop-filter`, so anything positioned inside it is both cut off and
 trapped below the scene. Use `placeAnchored()` from `src/ui/anchor.ts` for positioning — it flips
@@ -122,12 +131,16 @@ directly from the UI or a tool is a hole in the log. `src/sim/replay.test.ts` gu
 
 1. `bun run typecheck` → 0 errors.
 2. `bun run test` → all pass.
-3. **If you touched anything in `src/sim/` or `src/content/`: `bun run balance -- --runs 20
+3. **If you touched `src/ui/`, `src/store.ts`, `src/App.tsx`, or anything about layout, z-index,
+   portals or the day loop: `bun run test:e2e`** (~50s). It is the only layer that can see a
+   clipped tooltip, a panel under the HUD, or a clock that will not start. First run on a machine
+   needs `bun run e2e:install` once. See docs/TESTING.md.
+4. **If you touched anything in `src/sim/` or `src/content/`: `bun run balance -- --runs 20
    --days 200 --difficulty cozy,standard,challenge`** and compare against the table in
    docs/BALANCE.md. Watch the grade distribution and the late-game spread first — they move
    before anything else does. If the report prints `⚠ Late-game looks SOLVED`, you have
    reintroduced the core bug.
-4. **If you touched anything that produces *moments* rather than *numbers*** (events, arc beats,
+5. **If you touched anything that produces *moments* rather than *numbers*** (events, arc beats,
    milestones, toasts): `bun run playtest`. The statistical harness smooths pacing problems away
    completely — both event-pacing bugs in this project were invisible in the sweep and obvious in
    the first minute of the narrated run.
@@ -163,6 +176,7 @@ or people.
 | [docs/DESIGN.md](docs/DESIGN.md) | Every system, and the v1 failure it answers |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Code layout, the sim/UI contract, how to extend |
 | [docs/BALANCE.md](docs/BALANCE.md) | The harness, current curves, retuning workflow |
+| [docs/TESTING.md](docs/TESTING.md) | The three test layers, and what only a browser can see |
 | [docs/CONTENT.md](docs/CONTENT.md) | Adding content, with the quality bar |
 | [docs/PROGRESS.md](docs/PROGRESS.md) | Build log — what broke and why |
 | [FUTURE_WORK.md](FUTURE_WORK.md) | Known gaps, ranked |

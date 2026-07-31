@@ -5,7 +5,15 @@ import {
   AT_RISK_PATIENCE_THRESHOLD,
   BASE_REFERRALS_PER_DAY,
   BASE_RENT_PER_DAY,
+  CERTIFICATION_WELCOME_REFERRALS,
   COMFORTABLE_SESSIONS_PER_DAY,
+  GROUP_COHORT_CEILING,
+  GROUP_COHORT_CHANCE_PER_DAY,
+  GROUP_COHORT_SIZE,
+  GROUP_MAX_MEMBERS,
+  GROUP_MIN_MEMBERS,
+  SESSION_TYPE_REFERRAL_SHARE,
+  SPECIALTY_REFERRAL_CAP,
   COMMUNITY_TRUST_DRIFT_PER_DAY,
   COMMUNITY_TRUST_GAIN_FALLOFF,
   COMMUNITY_TRUST_PER_SLIDING_CLIENT,
@@ -86,10 +94,23 @@ import {
   autofillSchedule,
   bookableTherapists,
   clientBooked,
+  clientPriority,
+  detachClientFromSchedule,
+  groupSessionAt,
+  roomFocus,
   slotTaken,
   suggestFocus,
 } from './scheduler';
-import { buildTechniqueCards, chapterFor, resolveSession } from './session';
+import {
+  buildTechniqueCards,
+  chapterFor,
+  resolveSession,
+  sessionIncludes,
+  sessionMemberClients,
+  sessionMembers,
+  sessionPacer,
+  unlockedSessionTypes,
+} from './session';
 import type {
   AlumniRecord,
   Act,
@@ -102,7 +123,9 @@ import type {
   PendingEvent,
   ProgramId,
   ScheduledSession,
+  SessionFocus,
   SessionResult,
+  SessionType,
   SnapshotForMilestones,
   Therapist,
   Toast,
@@ -434,6 +457,12 @@ export class Game {
       case 'BOOK_SESSION':
         this.book(action.clientId, action.therapistId, action.slot, action.focus);
         break;
+      case 'BOOK_GROUP_SESSION':
+        this.bookGroup(action.clientIds, action.therapistId, action.slot, action.focus);
+        break;
+      case 'LEAVE_GROUP_SESSION':
+        this.leaveGroup(action.sessionId, action.clientId);
+        break;
       case 'UNBOOK_SESSION': {
         const i = s.schedule.findIndex((x) => x.id === action.sessionId);
         if (i >= 0 && s.schedule[i].status === 'scheduled') s.schedule.splice(i, 1);
@@ -616,7 +645,12 @@ export class Game {
                 body: '',
                 choices: [],
                 sessionId: sess.id,
-                clientId: sess.clientId,
+                // The cards are built for the pacer (see buildTechniqueCards),
+                // so the beat has to be *about* the pacer. Naming the first
+                // seat instead put one person's portrait, stability and
+                // "the least steady person here" beside another person's
+                // regression odds.
+                clientId: sessionPacer(s, sess)?.id ?? sess.clientId,
                 therapistId: sess.therapistId,
                 techniqueCards: cards,
               };
@@ -645,36 +679,48 @@ export class Game {
 
   private completeSession(sess: ScheduledSession): void {
     const s = this.state;
-    const result = resolveSession(s, sess, this.rng);
-    if (!result) {
+    const paced = resolveSession(s, sess, this.rng);
+    if (!paced) {
       sess.status = 'done';
       return;
     }
+    // One hour, but possibly several arcs. Every member's result is banked and
+    // announced separately — the day's takings, the quality average and the
+    // reflect card all have to see all of them.
+    const results = sess.results ?? [paced];
     const t = s.therapists.find((x) => x.id === sess.therapistId);
-    const c = s.clients.find((x) => x.id === sess.clientId);
     if (t && t.status === 'in_session') t.status = 'available';
 
-    s.cash += result.revenue;
-    s.stats.totalRevenue += result.revenue;
+    // Counted once per hour worked, not once per person in the room.
     s.stats.sessionsRun += 1;
-    s.stats.qualitySum += result.quality;
-    s.stats.qualityCount += 1;
-    s.xp += Math.round(result.xp * 0.22);
-    if (result.breakthrough) s.stats.breakthroughs += 1;
-    if (result.regression) s.stats.regressions += 1;
 
-    if (result.quality >= 0.8) {
+    // "Longest run of good sessions" is a run of *hours*, so a group settles it
+    // once on how the room went overall. Counting per member would hand a
+    // six-person circle six links of the chain for one afternoon's work.
+    const roomQuality = results.reduce((a, r) => a + r.quality, 0) / results.length;
+    if (roomQuality >= 0.8) {
       s.stats.currentStreak += 1;
       s.stats.maxStreak = Math.max(s.stats.maxStreak, s.stats.currentStreak);
     } else {
       s.stats.currentStreak = 0;
     }
 
-    s.lastDayResults.push(result);
-    this.bus.emit('SESSION_COMPLETED', { result });
-    this.bus.emit('MONEY_CHANGED', { delta: result.revenue, reason: 'session' });
+    for (const result of results) {
+      const c = s.clients.find((x) => x.id === result.clientId);
 
-    if (c) {
+      s.cash += result.revenue;
+      s.stats.totalRevenue += result.revenue;
+      s.stats.qualitySum += result.quality;
+      s.stats.qualityCount += 1;
+      s.xp += Math.round(result.xp * 0.22);
+      if (result.breakthrough) s.stats.breakthroughs += 1;
+      if (result.regression) s.stats.regressions += 1;
+
+      s.lastDayResults.push(result);
+      this.bus.emit('SESSION_COMPLETED', { result });
+      this.bus.emit('MONEY_CHANGED', { delta: result.revenue, reason: 'session' });
+
+      if (!c) continue;
       if (result.breakthrough) {
         c.story.unshift({ day: s.day, text: result.narrative, mood: 'proud' });
         this.toast('Breakthrough', `${c.handle} · ${result.narrative}`, 'milestone');
@@ -689,14 +735,21 @@ export class Game {
               : result.quality < 0.4
                 ? -0.8
                 : 0;
-        t.morale = clamp(t.morale + softGain(t.morale, moraleShift, 100, 1.2), 0, 100);
+        // A room of six must not be six times the morale swing of an hour.
+        t.morale = clamp(
+          t.morale + softGain(t.morale, moraleShift / results.length, 100, 1.2),
+          0,
+          100,
+        );
       }
     }
 
     this.checkTherapistLevel(t);
     this.checkPracticeLevel();
 
-    // Client-scope events sometimes follow a session.
+    // Client-scope events sometimes follow a session. One per hour, about the
+    // person the hour was paced by — a group should not fire six draws.
+    const c = s.clients.find((x) => x.id === paced.clientId);
     const firedToday = Number(s.flags.clientEventsToday ?? 0);
     if (c && c.status === 'active' && firedToday < MAX_CLIENT_EVENTS_PER_DAY && this.rng.chance(CLIENT_EVENT_CHANCE)) {
       const def = pickEvent(s, 'client', this.rng, { client: c, therapist: t });
@@ -737,7 +790,7 @@ export class Game {
       t.xp += 60;
       t.bonds = t.bonds.filter((id) => id !== c.id);
     }
-    s.schedule = s.schedule.filter((x) => x.clientId !== c.id || x.status === 'done');
+    detachClientFromSchedule(s, c.id);
     this.bus.emit('CLIENT_CURED', { clientId: c.id, alumni: alum });
     this.toast('A good goodbye', `${c.handle} finished treatment after ${c.sessionsAttended} sessions.`, 'cure');
     this.log(`${c.handle} completed treatment. "${alum.testimonial}"`, 'client', 'good');
@@ -748,7 +801,7 @@ export class Game {
     c.status = 'dropped';
     s.stats.dropouts += 1;
     s.reputation = clamp(s.reputation + REPUTATION_PER_DROPOUT, 0, 100);
-    s.schedule = s.schedule.filter((x) => x.clientId !== c.id || x.status === 'done');
+    detachClientFromSchedule(s, c.id);
     const t = s.therapists.find((x) => x.id === c.therapistId);
     if (t) t.morale = clamp(t.morale + MORALE_TARGETS.dropoutPenalty, 0, 100);
     this.bus.emit('CLIENT_DROPPED', { clientId: c.id });
@@ -784,14 +837,17 @@ export class Game {
     const s = this.state;
     const diff = DIFFICULTIES[s.difficulty];
 
-    // Sessions that never happened.
+    // Sessions that never happened. Everyone who was expected loses patience,
+    // but a group gets one line rather than six.
     for (const sess of s.schedule) {
       if (sess.status === 'scheduled' || sess.status === 'active') {
         sess.status = 'missed';
-        const c = s.clients.find((x) => x.id === sess.clientId);
-        if (c) {
-          c.patience = clamp(c.patience - 12, 0, 100);
-          this.log(`${c.handle}'s session didn't happen.`, 'client', 'bad');
+        const members = sessionMemberClients(s, sess);
+        for (const c of members) c.patience = clamp(c.patience - 12, 0, 100);
+        if (members.length > 1) {
+          this.log(`The group didn't run. ${members.length} people came for nothing.`, 'client', 'bad');
+        } else if (members.length === 1) {
+          this.log(`${members[0].handle}'s session didn't happen.`, 'client', 'bad');
         }
       }
     }
@@ -982,7 +1038,11 @@ export class Game {
     // ── Clients overnight ───────────────────────────────────────────────────
     for (const c of s.clients) {
       if (c.status !== 'active') continue;
-      const sawToday = s.schedule.some((x) => x.clientId === c.id && x.status === 'done');
+      // Every chair in the room counts as seen, not just the first one — a
+      // `x.clientId === c.id` test here silently charges the rest of a group
+      // the idle-day patience decay and the neglect drift on the very evening
+      // they attended. Go through the seam.
+      const sawToday = s.schedule.some((x) => x.status === 'done' && sessionIncludes(x, c.id));
       if (!sawToday) {
         c.daysSinceSession += 1;
         // Neglect compounds: each further idle day costs more than the last.
@@ -1049,11 +1109,32 @@ export class Game {
       if (rng.chance(referralRate - n)) n += 1;
       for (let i = 0; i < n; i++) {
         const alum = s.alumni.length && rng.chance(0.18) ? rng.pick(s.alumni) : undefined;
-        const c = generateClient(s, rng, { referredBy: alum?.handle });
+        const c = generateClient(s, rng, {
+          referredBy: alum?.handle,
+          sessionType: this.rollReferralType(rng),
+        });
         s.clients.push(c);
         this.bus.emit('CLIENT_ARRIVED', { clientId: c.id });
       }
       if (n > 0) this.log(`${n} new referral${n === 1 ? '' : 's'} came in.`, 'client');
+    }
+
+    // Group referrals arrive as a cohort rather than a trickle, because a single
+    // group client is a person nobody can see: the room needs two before it can
+    // run at all. Self-limiting — no new cohort while enough are already waiting.
+    if (unlockedSessionTypes(s).includes('group')) {
+      const onTheBooks = s.clients.filter(
+        (c) => c.sessionType === 'group' && (c.status === 'waitlist' || c.status === 'active'),
+      ).length;
+      if (onTheBooks < GROUP_COHORT_CEILING && rng.chance(GROUP_COHORT_CHANCE_PER_DAY)) {
+        const n = rng.int(GROUP_COHORT_SIZE[0], GROUP_COHORT_SIZE[1]);
+        for (let i = 0; i < n; i++) {
+          const c = generateClient(s, rng, { sessionType: 'group' });
+          s.clients.push(c);
+          this.bus.emit('CLIENT_ARRIVED', { clientId: c.id });
+        }
+        this.log(`${n} people asked about the group this week.`, 'client');
+      }
     }
 
     // ── Programs ────────────────────────────────────────────────────────────
@@ -1160,6 +1241,48 @@ export class Game {
     // Auto-schedule for Act 3 directors.
     if (s.upgrades.includes('up_auto_scheduler') && s.flags.autoSchedule) {
       autofillSchedule(s, rng, { auto: true });
+    }
+  }
+
+  /**
+   * What kind of room does this referral want?
+   *
+   * A flat share per certification rather than one that grows with reputation:
+   * referral *volume* already scales with how well known you are, so a fixed
+   * slice keeps the shape of the caseload recognisable at every size. A practice
+   * that is 40% couples is a different game than this one. The combined
+   * specialty share is normalised to `SPECIALTY_REFERRAL_CAP`, so owning every
+   * certification widens the practice rather than crowding individual work out.
+   *
+   * Draws nothing from the rng until something is actually unlocked.
+   */
+  private rollReferralType(rng: Rng): SessionType {
+    const unlocked = unlockedSessionTypes(this.state);
+    const shares: [SessionType, number][] = [];
+    let total = 0;
+    for (const ty of ['couples', 'family'] as const) {
+      if (!unlocked.includes(ty)) continue;
+      shares.push([ty, SESSION_TYPE_REFERRAL_SHARE[ty]]);
+      total += SESSION_TYPE_REFERRAL_SHARE[ty];
+    }
+    if (!shares.length) return 'individual';
+
+    const scale = total > SPECIALTY_REFERRAL_CAP ? SPECIALTY_REFERRAL_CAP / total : 1;
+    const r = rng.next();
+    let acc = 0;
+    for (const [ty, w] of shares) {
+      acc += w * scale;
+      if (r < acc) return ty;
+    }
+    return 'individual';
+  }
+
+  private spawnReferrals(type: SessionType, n: number): void {
+    const s = this.state;
+    for (let i = 0; i < n; i++) {
+      const c = generateClient(s, this.rng, { sessionType: type });
+      s.clients.push(c);
+      this.bus.emit('CLIENT_ARRIVED', { clientId: c.id });
     }
   }
 
@@ -1377,11 +1500,29 @@ export class Game {
 
   // ── Player actions ─────────────────────────────────────────────────────────
 
-  private book(clientId: string, therapistId: string, slot: number, focus?: import('./types').SessionFocus): void {
+  private book(clientId: string, therapistId: string, slot: number, focus?: SessionFocus): void {
     const s = this.state;
     const c = s.clients.find((x) => x.id === clientId);
+    if (!c) return;
+    // A group client can only be seen in a group, and a group of one is an
+    // individual session at group prices — a trap, not a choice. So booking one
+    // into a slot that already holds a room joins it, and booking one into an
+    // empty slot opens the room and fills the other chairs from whoever else is
+    // waiting. Which is what running a group actually means.
+    if (c.sessionType === 'group') {
+      if (groupSessionAt(s, therapistId, slot)) {
+        this.bookGroup([clientId], therapistId, slot, focus);
+        return;
+      }
+      const others = activeClients(s)
+        .filter((x) => x.id !== clientId && x.sessionType === 'group' && !clientBooked(s, x.id))
+        .sort((a, b) => clientPriority(s, b) - clientPriority(s, a))
+        .slice(0, GROUP_MAX_MEMBERS - 1);
+      this.bookGroup([clientId, ...others.map((x) => x.id)], therapistId, slot, focus);
+      return;
+    }
     const t = s.therapists.find((x) => x.id === therapistId);
-    if (!c || !t || c.status !== 'active') return;
+    if (!t || c.status !== 'active') return;
     if (t.status !== 'available' && t.status !== 'in_session') return;
     if (slotTaken(s, therapistId, slot)) return;
     if (clientBooked(s, clientId)) return;
@@ -1398,6 +1539,89 @@ export class Game {
       t: 0,
     });
     c.therapistId = therapistId;
+  }
+
+  /**
+   * Book a room. Creating and adding are the same verb: if this therapist is
+   * already holding a group in this slot, the named clients take the empty
+   * chairs, otherwise the room is opened.
+   */
+  private bookGroup(
+    clientIds: string[],
+    therapistId: string,
+    slot: number,
+    focus?: SessionFocus,
+  ): void {
+    const s = this.state;
+    const t = s.therapists.find((x) => x.id === therapistId);
+    if (!t) return;
+    if (t.status !== 'available' && t.status !== 'in_session') return;
+    if (s.dayPhase === 'running' && slot * SLOT_MINUTES < s.minute) return;
+
+    const existing = groupSessionAt(s, therapistId, slot);
+    if (!existing && slotTaken(s, therapistId, slot)) return;
+
+    const room = existing ? [...sessionMembers(existing)] : [];
+    const joined: Client[] = [];
+    for (const id of clientIds) {
+      if (room.length >= GROUP_MAX_MEMBERS) break;
+      const c = s.clients.find((x) => x.id === id);
+      if (!c || c.status !== 'active' || c.sessionType !== 'group') continue;
+      if (room.includes(id) || clientBooked(s, id)) continue;
+      room.push(id);
+      joined.push(c);
+    }
+    if (!joined.length) return;
+    // Opening a room needs enough people in it to be a room.
+    if (!existing && room.length < GROUP_MIN_MEMBERS) return;
+
+    const members = room
+      .map((id) => s.clients.find((x) => x.id === id))
+      .filter((x): x is Client => !!x);
+    if (existing) {
+      existing.memberIds = room;
+      existing.clientId = room[0];
+      if (focus) existing.focus = focus;
+    } else {
+      s.schedule.push({
+        id: makeId(this.rng, 's'),
+        clientId: room[0],
+        memberIds: room,
+        therapistId,
+        slot,
+        focus: focus ?? roomFocus(s, members),
+        type: 'group',
+        status: 'scheduled',
+        t: 0,
+      });
+    }
+    for (const c of joined) c.therapistId = therapistId;
+  }
+
+  /** Take one chair back out of a booked group. */
+  private leaveGroup(sessionId: string, clientId: string): void {
+    const s = this.state;
+    const sess = s.schedule.find((x) => x.id === sessionId);
+    if (!sess || sess.status !== 'scheduled') return;
+    const rest = sessionMembers(sess).filter((id) => id !== clientId);
+    if (rest.length === sessionMembers(sess).length) return;
+    // A room that drops below two people is not a room. Leaving one person in
+    // it would bill them a group rate for an individual hour and move them at
+    // the group's slower pace — a hidden punishment for a click that looks like
+    // tidying. Dissolve it instead and hand everyone their hour back, out loud.
+    if (rest.length < GROUP_MIN_MEMBERS) {
+      s.schedule = s.schedule.filter((x) => x.id !== sessionId);
+      if (rest.length) {
+        const left = s.clients.find((c) => c.id === rest[0]);
+        this.log(
+          `The circle came apart before it met. ${left?.handle ?? 'The one still waiting'} has their hour back — book it on its own.`,
+          'session',
+        );
+      }
+      return;
+    }
+    sess.memberIds = rest;
+    sess.clientId = rest[0];
   }
 
   private acceptClient(clientId: string, therapistId?: string): void {
@@ -1423,7 +1647,7 @@ export class Game {
     if (!c) return;
     c.status = 'referred_out';
     s.communityTrust = clamp(s.communityTrust - (c.payment === 'sliding_scale' ? 2.5 : 0.8), 0, 100);
-    s.schedule = s.schedule.filter((x) => x.clientId !== c.id);
+    detachClientFromSchedule(s, c.id);
     this.log(`${c.handle} was referred to another practice.`, 'client');
   }
 
@@ -1587,6 +1811,24 @@ export class Game {
     }
     this.toast(u.name, u.blurb, 'info');
     this.log(`Bought ${u.name}.`, 'money', 'good');
+
+    // A certification that changes nothing you can see is a receipt, not a
+    // decision. The referral network hears about it the same week.
+    const unlock = u.mods?.unlockSessionType;
+    if (unlock === 'group') {
+      const n = this.rng.int(GROUP_COHORT_SIZE[0], GROUP_COHORT_SIZE[1]);
+      this.spawnReferrals('group', n);
+      this.log(`${n} people asked about the group before the paint was dry.`, 'client', 'good');
+    } else if (unlock === 'couples' || unlock === 'family') {
+      this.spawnReferrals(unlock, CERTIFICATION_WELCOME_REFERRALS);
+      this.log(
+        unlock === 'couples'
+          ? 'Word went round the referral network. A couple is already on the list.'
+          : 'A family referral arrived before the certificate was framed.',
+        'client',
+        'good',
+      );
+    }
   }
 
   private launchProgram(programId: ProgramId, therapistIds: string[]): void {

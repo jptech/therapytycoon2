@@ -10,23 +10,45 @@ Items marked **⚑** are what I would do first. Effort is rough: **S** ≈ an ho
 
 ## 1. The largest gap between plan and build
 
-### ⚑ Couples, family and group sessions are plumbed but unreachable — **L**
+### ~~Couples, family and group sessions are plumbed but unreachable~~ — **done**
 
-**Why.** The concept plan lists these as the main widening of case types, and they are the
-clearest content-per-effort win left: three new session shapes reusing every existing system.
+They arrive. Each certification takes a flat share of ordinary referrals and puts somebody at the
+door the same week it is bought; the group room seeds a cohort, because a lone group client is a
+person nobody can see. Balance write-up in docs/BALANCE.md → *What the session types moved*; the
+shape of each room is in docs/DESIGN.md → *Four shapes of hour*.
 
-**State today.** Fully typed (`SessionType` in `src/sim/types.ts`), certifications exist
-(`up_couples_certification`, `up_family_certification`, `up_group_room`), rates are multiplied,
-`generateClient` can produce them, and `resolveSession` already adjusts progress per type
-(group ×0.78, couples/family ×1.12). **What is missing is the referral path** — nothing ever
-passes `sessionType` to `generateClient`, so they never arrive.
+The part that was not wiring: **a group session holds several clients in one slot.**
+`ScheduledSession` carries `memberIds` and resolves once per member, because at 0.55× the fee and
+0.78× the progress a group of one is strictly worse than an individual hour and the Group Room
+would have been a $3,800 trap. Energy and experience are sublinear in heads, attention divides
+with a floor on the aggregate, the least steady member sets the room's pace, and every member's
+deltas are reported — `session.results` holds one `SessionResult` each and all of them reach
+`lastDayResults`. `sessionMembers()` / `sessionIncludes()` / `detachClientFromSchedule()` in
+`src/sim/session.ts` and `src/sim/scheduler.ts` are the seam; nothing should read
+`session.clientId` directly again. Save v8 migrates old schedules.
 
-**Where to start.** `src/sim/engine.ts`, the referral block in `nextDay()`. Gate on the owned
-certification and give each type a small share of referrals.
+The UI renders it: the schedule cell reads *"Room of four · A.M., P.T. and 2 more"* with a roster
+popover, the caseload card carries a companion line and a type chip, and the reflect card reports
+every member's delta separately — including the ones that went backwards inside an hour graded
+"good", which is what the no-hidden-punishments commitment costs and is meant to cost.
 
-**Done looks like.** Buying a certification visibly changes who arrives; the schedule shows a
-two-client session; the clients panel renders `partnerHandles`; the balance harness shows the
-economics are not degenerate (group therapy at 0.55× revenue for 6–8 clients is a big swing).
+One rule earned its own guard on the way out as well as in: **a room that drops below
+`GROUP_MIN_MEMBERS` dissolves rather than leaving one person in it.** Excusing the second-to-last
+chair, or curing one half of a pair, used to leave a circle of one — a full-cost hour billing
+0.55× and moving at the group's slower pace, with nothing on screen to say so.
+
+**Still open:**
+
+- **The office scene seats one actor per session.** `office.ts` maps `s.clientId` → session, so a
+  room of five shows one chair. It is `aria-hidden` decoration and the game plays fine without it,
+  but it currently draws a lie.
+- **No group-specific content.** No arc beats about being in a room with other people, no events
+  about a member who dominates the circle or one who stops coming, and the technique pool is not
+  aware that a technique is being chosen for six people at once. This is the cheapest remaining
+  content win now that the mechanism exists — see §3.
+- **Couples and family have no second-stakeholder mechanic.** `partnerHandles` is currently
+  flavour; the partner never has an agenda of their own. Related to *Minors and parent
+  involvement* below, and probably the same system.
 
 ### Satellite clinics are a beat, not a system — **M**
 

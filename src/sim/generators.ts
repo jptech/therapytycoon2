@@ -3,8 +3,11 @@ import {
   COMPLEX_RATE_MULT,
   COMPLEX_SHARE,
   DIFFICULTIES,
+  FAMILY_CHILD_AGE_RANGE,
   RATE_BY_PAYMENT,
   SALARY_BY_STAGE,
+  SESSION_TYPE_CONDITION_BIAS,
+  SESSION_TYPE_RATE_MULT,
   WEEK_ONE_PATIENCE_BUFFER,
 } from './balance';
 import {
@@ -109,6 +112,14 @@ export function pickName(rng: Rng): { first: string; last: string; pronouns: str
 // Clients
 // ─────────────────────────────────────────────────────────────────────────────
 
+/** The first line of a client's story feed. The room they asked for is the point. */
+const INTAKE_LINE: Record<SessionType, (practice: string) => string> = {
+  individual: (p) => `Referred to ${p}. First contact made.`,
+  couples: (p) => `Referred to ${p} as a couple. One of them made the call.`,
+  family: (p) => `Referred to ${p} as a family. The school suggested it.`,
+  group: (p) => `Asked ${p} about the group. Wants to be in a room with people who get it.`,
+};
+
 export interface ClientGenOptions {
   forceComplex?: boolean;
   forceCondition?: ConditionId;
@@ -123,11 +134,15 @@ export function generateClient(state: GameState, rng: Rng, opts: ClientGenOption
 
   // Which conditions are plausibly referred to us right now?
   const philosophy = state.philosophy ? philosophyById[state.philosophy] : undefined;
+  // Nobody is referred to family therapy for occupational burnout, and a couple
+  // does not come in for early psychosis — the room changes who walks into it.
+  const typeBias = opts.sessionType ? SESSION_TYPE_CONDITION_BIAS[opts.sessionType] : undefined;
   const weights = ALL_CONDITIONS.map((cond) => {
     const gate = GATED_CONDITIONS[cond];
     if (gate !== undefined && rep < gate) return 0;
     let w = CONDITION_WEIGHTS[cond];
     if (philosophy?.referralBias[cond]) w *= philosophy.referralBias[cond]!;
+    if (typeBias?.[cond] !== undefined) w *= typeBias[cond]!;
     return w;
   });
 
@@ -165,9 +180,13 @@ export function generateClient(state: GameState, rng: Rng, opts: ClientGenOption
   // Age follows the presenting condition, so a "Child Behavioral" referral is
   // never a sixty-year-old and the writing stays believable.
   const [ageLo, ageHi] = AGE_RANGE_BY_CONDITION[condition];
+  // A family referral is filed under the young person everyone is worried about,
+  // clamped back into the condition's own band so the case still reads true.
+  const famLo = clamp(FAMILY_CHILD_AGE_RANGE[0], ageLo, ageHi);
+  const famHi = clamp(FAMILY_CHILD_AGE_RANGE[1], ageLo, ageHi);
   const age =
     opts.sessionType === 'family'
-      ? rng.int(Math.min(9, ageHi), Math.min(17, ageHi))
+      ? rng.int(Math.min(famLo, famHi), Math.max(famLo, famHi))
       : clamp(Math.round(rng.normal((ageLo + ageHi) / 2, (ageHi - ageLo) / 4.2)), ageLo, ageHi);
 
   const backstoryPool = CLIENT_BACKSTORIES.filter(
@@ -214,20 +233,21 @@ export function generateClient(state: GameState, rng: Rng, opts: ClientGenOption
     authorizedSessions: payment === 'insurance' ? rng.int(8, 16) : undefined,
   };
 
+  // Couples and family are one case with several people in it: a single record,
+  // a single arc, one bill covering everyone who walks through the door.
   if (client.sessionType === 'couples') {
     const partner = pickName(rng);
     client.partnerHandles = [initials(partner.first, partner.last)];
-    client.rate = Math.round(client.rate * 1.5);
   } else if (client.sessionType === 'family') {
     const a = pickName(rng);
     const b = pickName(rng);
     client.partnerHandles = [initials(a.first, a.last), initials(b.first, b.last)];
-    client.rate = Math.round(client.rate * 1.7);
   }
+  client.rate = Math.round(client.rate * (SESSION_TYPE_RATE_MULT[client.sessionType] ?? 1));
 
   client.story.push({
     day: state.day,
-    text: `Referred to ${state.practiceName}. First contact made.`,
+    text: INTAKE_LINE[client.sessionType](state.practiceName),
     mood: 'neutral',
   });
 
