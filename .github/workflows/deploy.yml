@@ -2,6 +2,12 @@ name: Deploy to Pages
 
 # The game is a static build with no server and no network calls, so publishing
 # it is just "build and upload the folder". Runs on every push to main.
+#
+# This is the only workflow, on purpose. Tests, the balance harness and the
+# browser suite are a local discipline — they are worth a person's attention on
+# the change they just made, not a runner's on every push — so the one thing
+# that happens here is the one thing that has to happen remotely. A build that
+# does not compile still fails loudly, because publishing requires it.
 on:
   push:
     branches: [main]

@@ -55,6 +55,12 @@ Any change to `src/ui`, `src/store.ts`, `src/App.tsx`, or anything about layout,
 or the day loop. It is not needed for a tuning change or a content addition — those are what the
 harness and `content.test.ts` are for.
 
+**Nothing enforces this remotely.** The only workflow in `.github/` builds the game and publishes
+it; it does not run a single test. That is deliberate — the suites here are worth minutes of a
+person's attention on the change they just made, not minutes of a runner's on every push — but it
+does mean the gate is you. A broken build will still fail the deploy, loudly. A broken *game* will
+publish perfectly.
+
 ## How it is set up
 
 **Its own server, with HMR off** (`e2e/vite.e2e.config.ts`, port 5299). It is the project's real
@@ -70,12 +76,12 @@ differences are deliberate:
 **The office scene is blocked, on purpose.** `openGame()` aborts the request for
 `scene/OfficeScene`, so every spec runs against the app's own no-WebGL path — the one the lazy
 import's `.catch()` already provides, because "the game stays playable without the scene" is an
-architectural rule rather than an aspiration. This is not only about avoiding the canvas: a CI
-runner has no GPU, so PixiJS falls back to software rasterisation, its animation loop pegs the
-single core it is given, and the page starves. That was measured, not guessed — `page.evaluate`
-itself timed out and every spec failed against a two-minute budget, for want of a canvas that no
-test asserts on. Blocking it also halves the suite's wall clock. The office is verified by looking
-at it, which is the only way a drawing can be verified anyway.
+architectural rule rather than an aspiration. This is not only about avoiding the canvas: on a
+machine without a GPU, PixiJS falls back to software rasterisation, its animation loop pegs the
+core it is given, and the page starves. That was measured, not guessed — on a two-core cloud
+runner `page.evaluate` itself timed out and every spec failed against a two-minute budget, for want
+of a canvas that no test asserts on. Blocking it also halves the suite's wall clock on a laptop.
+The office is verified by looking at it, which is the only way a drawing can be verified anyway.
 
 **Warmed before the first test.** `e2e/global-setup.ts` loads the page once and waits for
 `window.__tt`. `webServer.url` only waits for Vite to *answer*, and Vite answers with the HTML
@@ -192,7 +198,8 @@ waiting on you" is a real assertion and not a tautology.
   panels, the quarter review, the hire modal, or the end screen — all of which are blocking
   surfaces, and three of them are modals that could in principle strand the clock.
 - **No visual regression.** Nothing would notice the game turning grey.
-- **The office scene is never exercised here** — see above for why. Nothing in CI would notice the
-  scene throwing on load; the `.catch()` would swallow it and the suite would stay green while the
-  home screen quietly went blank. A cheap guard would be one spec that *allows* the module through
-  and asserts a canvas appears, kept away from the frame-counting tests so it cannot starve them.
+- **The office scene is never exercised here** — see above for why. Nothing in this suite would
+  notice the scene throwing on load; the `.catch()` would swallow it and the run would stay green
+  while the home screen quietly went blank. A cheap guard would be one spec that *allows* the
+  module through and asserts a canvas appears, kept away from the frame-counting tests so it
+  cannot starve them.

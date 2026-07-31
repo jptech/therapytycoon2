@@ -8,7 +8,6 @@
 
 [**▶ Play it in your browser**](https://jptech.github.io/therapytycoon2/)
 
-[![CI](https://github.com/jptech/therapytycoon2/actions/workflows/ci.yml/badge.svg)](https://github.com/jptech/therapytycoon2/actions/workflows/ci.yml)
 [![Deploy](https://github.com/jptech/therapytycoon2/actions/workflows/deploy.yml/badge.svg)](https://github.com/jptech/therapytycoon2/actions/workflows/deploy.yml)
 ![TypeScript](https://img.shields.io/badge/TypeScript-3178c6?logo=typescript&logoColor=white)
 ![React 19](https://img.shields.io/badge/React-19-61dafb?logo=react&logoColor=black)
