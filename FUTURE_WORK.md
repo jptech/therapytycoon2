@@ -1,7 +1,9 @@
 # Future work
 
-Written at the end of the initial build, by the person who built it. Every item says **why it
-matters**, **where to start**, and **what done looks like**, so none of them need re-deriving.
+Started at the end of the initial build and kept current since. Every item says **why it matters**,
+**where to start**, and **what done looks like**, so none of them need re-deriving. Finished items
+are struck through rather than deleted — several of them record *why* something is the shape it is,
+and that is worth more than a tidy list.
 
 Items marked **⚑** are what I would do first. Effort is rough: **S** ≈ an hour, **M** ≈ a day,
 **L** ≈ several days.
@@ -111,7 +113,7 @@ split into same-subject and different-subject, the client-scope modal cap, repea
 It found a live defect on its first run, which is now fixed — see "Scripted event raises ignored
 the cooldown" below for what was left standing.
 
-### Standard barely collapses, and Challenge may now bite too hard — **S**
+### ⚑ Standard barely collapses, and Challenge may now bite too hard — **S**
 
 Standard measures 2/40 collapses, up from 0/40 and still down from 5/40 before the Phase 6/7 fixes.
 The two it now has arrived with the event-repeat fix, which closed a per-client cash-and-morale
@@ -176,6 +178,13 @@ measurement.
 Counts meet or exceed the plan's targets: 48 techniques, 64 events, 42 arc beats, 22 traits, 26
 upgrades, 24 trainings, 30 milestones, 48 testimonials. What is actually thin:
 
+- **⚑ Nothing is written for a room.** Group, couples and family sessions now exist mechanically
+  and have no content of their own: no arc beats about being in a circle with other people, no
+  event about the member who takes most of the hour or the one who stops coming, and the technique
+  pool does not know it is being chosen for six people at once. The pacer — the least steady person
+  in the room, who sets its pace — is a ready-made subject nobody writes about yet. This is the
+  cheapest content win on the list, because the mechanism is already carrying the weight and the
+  writing is the only thing missing. **M**
 - **Condition coverage is uneven.** `psychosis` and `behavioral` have the fewest arc beats and
   technique affinities, and they appear latest in a run, so a long playthrough notices. **S**
 - **Philosophy-exclusive content is techniques only.** Each philosophy has 2–3 signature
@@ -219,12 +228,15 @@ open" chip in the HUD now shows from
 `lg` rather than `xl`, because on the screens where the card yields it is the only thing left
 saying the day is holding.)
 
-### The scene has a lot of dead sky — **S**
+### The sky is filled, but the building still does not grow — **S**
 
-The building sits in the lower half of the viewport with a large empty sky above it. That reads
-as deliberate at 900px tall and as wasted space on a wider screen. Either fill it (a skyline,
-weather, birds) or scale the building to the available height. `layout()` in `src/scene/office.ts`
-already computes a single fit transform, so this is one number.
+Half of this is done: the sky now carries a skyline, stars and a day-cycle tint, so the space above
+the building reads as evening rather than as nothing. What was *not* done is the other option —
+the building keeps its fixed fit at every viewport height, so on a tall screen the roof still sits
+low with a lot of sky above it. `layout()` in `src/scene/office.ts` computes a single fit
+transform, so scaling to the available height is one number; the question is whether a bigger
+building or a bigger sky is the better picture, and that is a taste call somebody should make by
+looking rather than by reasoning.
 
 ### ~~Panel state is not remembered~~ — **done**
 
@@ -278,17 +290,27 @@ strong meta hook and is nearly free — `saveLegacy` already exists in `src/sim/
 
 ## 5. Technical
 
-### ⚑ No end-to-end tests — **M**
+### ~~No end-to-end tests~~ — **done**
 
-The sim has 195 tests; the React layer has almost none (only `anchor.test.ts`, which is pure). A
-Playwright pass driving one full day — book, run, choose a technique, read the reflect card, close
-the day — would catch integration regressions that typechecking cannot.
+Six Playwright specs, `bun run test:e2e`, ~55s. See docs/TESTING.md for what each layer is for.
+The one that carries the most weight is the liveness pair: the clock stops for a decision and
+starts again once it is answered, *and* taking the pause away mid-decision does not move it —
+because pause was never what was blocking, which is exactly why the reported freeze was so hard to
+read. Four of the five bugs a person found by playing now have a regression test; every one of
+them was invisible to both the typechecker and the balance harness.
 
-This is now the biggest measurement gap in the project. Of the bugs found by a person playing,
-**every single one** was invisible to both the typechecker and the balance harness: a tooltip
-clipped by an ancestor's `overflow`, a tooltip running off the viewport, a panel opening under the
-HUD, a day that started running under a tutorial coach-mark, and a freeze whose root cause is
-still unconfirmed. All five are the kind a browser-driving test catches on the first run.
+No `waitForTimeout` anywhere: waits are sim-state predicates or counted animation frames, because
+a sleep proves nothing about whether the game had a chance to move. Every test was proven able to
+fail before it was kept — if you add one, do the same, and say so.
+
+Still thin, and worth extending as the surface grows:
+
+- **Nothing drives a group session end to end.** The specs predate them.
+- **One browser, one viewport.** Chromium at 1280×800. The mobile item below is untested in every
+  sense.
+- **The suite needs its own Vite config** (`e2e/vite.e2e.config.ts`, HMR off, port 5299) because a
+  file save mid-run destroys the execution context. Worth knowing before you wonder why it is
+  there.
 
 ### ~~No replay tooling~~ — **done**
 

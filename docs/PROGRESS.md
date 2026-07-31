@@ -193,7 +193,87 @@ identified. If it recurs, the console names the pending event or the boundary sh
 
 ---
 
-## Phase 8 — The same conversation, twice
+## Phase 8 — Closing the two blind spots
+
+Phase 7's lesson was that three tools each see one class of bug and never each other's. Two of the
+three gaps were still open, so this phase built instruments rather than features.
+
+**Replay turned out to be an audit of everything that was not an action.** The premise is trivial —
+the sim is deterministic and `GameAction` is serialisable, so record the dispatches and re-run them
+— and it immediately found two places where the run was not, in fact, a function of its actions.
+Log and toast ids came off module-level counters, so two same-seed games in one process differed in
+exactly the way that defeats a whole-state diff. And three UI surfaces wrote `state.flags` directly
+with a no-op dispatch to force a publish, which had worked invisibly for the whole build: a
+recorded run where somebody dismissed the quarter review no longer reproduced. Neither was
+detectable before there was something that cared.
+
+The one genuinely subtle bug was in the recorder itself, and it was found by review rather than by
+running it: `Recorder` kept the run's starting `legacy` **by reference**, and legacy is meta-
+progression the end screen mutates after a run finishes. So retiring, spending a legacy perk, then
+exporting the run rewrote the recorded starting conditions retroactively — and the CLI reported a
+divergence on day 1, blaming the player's log in the exact moment the tool exists to serve them.
+Deep-copying the origin is a one-line fix; noticing that the tool could lie about the thing it was
+built to prove is the part worth remembering.
+
+One design note that reads as pedantry and is not: **ticks are run-length encoded, not summed.**
+`TICK 1` twice is not `TICK 2` — `tick()` reads thresholds off `state.minute`, so a coarser step
+can activate two sessions in one pass and draw their variance in schedule order rather than clock
+order. Recording `{action, n}` keeps the sequence identical and still takes a 12,288-action browser
+run down to 384 entries.
+
+**The adversarial player measured a floor nobody had seen.** `--skill 0` never did the genuinely
+wrong thing — it would not work an exhausted therapist or process trauma on an unstable client — so
+"poor" sessions were 0.0% in every sweep ever run. A policy that plays like an overwhelmed beginner
+rather than a random button-masher puts them at ~7% and mixed at ~65%, and finally exercises
+departures and burnouts at scale.
+
+It also caught three things the competent bot had been hiding, all documented rather than tuned
+away because they are design questions and not bugs: **bad practice is not punished financially**
+(adversarial Cozy banks $393k against the reasonable player's $130k, purely on session volume),
+**cures track session count more than session quality**, and **burnout has an upside**, because a
+sabbatical hands a therapist back with more capacity than they left with. The first is the one that
+undercuts the design, and it is still open.
+
+---
+
+## Phase 9 — Docking, and the card that covered the decision
+
+Three small UI gaps, one of which turned out to be the same shape as the freeze from Phase 7.
+
+**Panels and the day cards had been fighting for the middle of the screen.** Dismissing the card
+when a panel opens was the tempting fix and the wrong one: the morning brief's own footer says
+"Open the schedule", so hiding the brief in order to show the schedule would have made the game
+argue with itself. The card docks into the column beside the panel instead, and below a readable
+width it fades back rather than being unmounted, so it returns exactly where it was. The
+arithmetic went into `src/ui/dock.ts`, pure and unit-tested beside `anchor.ts`, and the panel
+publishes its own measured width rather than anyone keeping a table of panel sizes — a table would
+be wrong the first time somebody changed a shell.
+
+**The shortcut card could cover a decision that was holding the clock.** Opening it was already
+suppressed while a modal was up, but the reverse order was reachable: leave it open at 4×, have an
+event fire a second later, and a list of keyboard shortcuts is painted over the thing `tick()` is
+waiting on. That is Phase 7's freeze wearing a different hat — the clock stops, pause does not
+help, and the explanation is behind the card. `src/ui/modals.ts` is now the single answer to "who
+owns the centre of the screen", which `App.tsx` mounts from and the keyboard layer suppresses from,
+so the two cannot drift apart. Same shape of fix as `src/sim/pending.ts`, for the same reason.
+
+**And the first tests that drive a browser.** Six Playwright specs; the full-day one crosses every
+integration seam the unit tests cannot reach, and four of Phase 7's five player-found bugs now have
+a regression test. The pair that matters most asserts the liveness contract from both ends: the
+clock stops for a decision, starts again when it is answered, and — the assertion that took a
+second pass to get right — *taking the pause away mid-decision does not move it*. A decision
+auto-pauses as well as blocking, so `paused` alone cannot tell you which one is holding the clock,
+and that ambiguity is precisely why the reported freeze was so hard to read.
+
+Two things learned the hard way. The suite needs **its own Vite config with HMR off**, because a
+source file saved mid-run destroys the execution context and the failure looks like a game bug.
+And **`getBoundingClientRect` cannot see a clip** — the tooltip test hit-tests with
+`elementFromPoint`, which is the difference between catching the Phase 7 clipping bug and writing a
+test that would have passed while it was live.
+
+---
+
+## Phase 10 — The same conversation, twice
 
 The pacing assertions had been in the harness for about an hour when they turned up a live defect,
 and it is a good example of a bug that only a *moment*-shaped test can see: 120 of 120 reasonable
@@ -241,7 +321,7 @@ the next person to read the curves deserves to know which of them moved for a pa
 
 ---
 
-## Phase 9 — Three certifications that bought nothing
+## Phase 11 — Three certifications that bought nothing
 
 `SessionType` had been fully typed since Phase 0. Three certifications carried
 `mods.unlockSessionType`, `generateClient` could produce every kind, and `resolveSession` already
@@ -312,11 +392,23 @@ written at the same time.
 `src/sim/types.ts` concurrently with essentially no integration friction, because the contract was
 finished and detailed before any of them started.
 
-**Three tools, three blind spots.** The typechecker cannot see a 60-year-old referred for "Child
-Behavioral". The balance harness cannot see the same dilemma firing three mornings running. The
-narrated playtest cannot see a tooltip running off the right edge. Every class of bug in this
-project was found by exactly one of the three, and never by the other two — so "it typechecks and
-the curves are fine" is not evidence of much on its own.
+**Every tool has exactly one blind spot, and they do not overlap.** The typechecker cannot see a
+60-year-old referred for "Child Behavioral". The balance harness cannot see the same dilemma firing
+three mornings running. The narrated playtest cannot see a tooltip running off the right edge. The
+browser tests cannot see a curve going soft over two hundred days. Every class of bug in this
+project was found by exactly one instrument and never by the others — so "it typechecks and the
+curves are fine" is not evidence of much on its own.
+
+The corollary is that **building an instrument is a way of finding bugs, not just of preventing
+them.** The pacing assertions found a live defect within an hour of existing. Replay found two
+places where the run was not a function of its actions. Neither was a regression; both had been
+true for the whole build, and neither was visible until something was looking.
+
+**The tempting fix is usually the one that deletes something quietly.** Twice now the obvious
+one-liner — make `raiseEvent` return early on cooldown; let a group session shrink to one member —
+would have passed every test and taken away something the player was promised. Both times the
+right shape was *hold*, not *refuse*: defer the beat, dissolve the room. When a fix makes a number
+go to zero, check whether it fixed the cause or removed the evidence.
 
 **Design commitments need structural enforcement, not discipline.** "No hidden punishments" only
 held because `SessionResult.reasons` carries the full explanation and `progressDelta` reports the
