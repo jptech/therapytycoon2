@@ -175,4 +175,4 @@ are looking for help rather than a game, please talk to someone qualified.
 
 ## License
 
-[ISC](LICENSE).
+[MIT](LICENSE).
