@@ -1,7 +1,15 @@
 {
   "name": "therapy-tycoon-v2",
   "version": "2.0.0",
-  "description": "",
+  "description": "A cozy therapy-practice management sim where the product is care.",
+  "homepage": "https://jptech.github.io/therapytycoon2/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jptech/therapytycoon2.git"
+  },
+  "bugs": {
+    "url": "https://github.com/jptech/therapytycoon2/issues"
+  },
   "main": "index.js",
   "directories": {
     "doc": "docs"
@@ -23,8 +31,16 @@
     "test:e2e:report": "playwright show-report",
     "e2e:install": "playwright install chromium"
   },
-  "keywords": [],
-  "author": "",
+  "keywords": [
+    "game",
+    "simulation",
+    "management-sim",
+    "cozy-game",
+    "pixijs",
+    "react",
+    "typescript"
+  ],
+  "author": "Parker Mitchell",
   "license": "ISC",
   "type": "module",
   "private": "true",
