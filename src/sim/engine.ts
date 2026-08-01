@@ -913,12 +913,24 @@ export class Game {
             const tr = trainingById[trainingId];
             if (tr) {
               t.skill = clamp(t.skill + tr.skill, 0, 100);
-              for (const g of tr.grants) if (!t.techniques.includes(g)) t.techniques.push(g);
+              // Count what actually landed, not what the brochure promised. A
+              // therapist can already hold some of a course's cards — they
+              // arrive with the tier-2 half their seniority earned them — and
+              // reporting the brochure figure would be a number the player can
+              // check against the deck and find wrong.
+              const fresh = tr.grants.filter((g) => !t.techniques.includes(g));
+              for (const g of fresh) t.techniques.push(g);
               if (!t.certifications.includes(tr.id)) t.certifications.push(tr.id);
               if (tr.tier >= 2 && !t.secondaryModality && tr.modality !== t.modality)
                 t.secondaryModality = tr.modality;
               this.log(`${t.name} completed ${tr.name}.`, 'staff', 'good');
-              this.toast('Training complete', `${t.name} came back with ${tr.grants.length} new technique${tr.grants.length === 1 ? '' : 's'}.`, 'info');
+              this.toast(
+                'Training complete',
+                fresh.length
+                  ? `${t.name} came back with ${fresh.length} new technique${fresh.length === 1 ? '' : 's'} and +${tr.skill} skill.`
+                  : `${t.name} came back certified, and +${tr.skill} skill the better for it.`,
+                'info',
+              );
             }
             delete s.flags[`training_${t.id}`];
           } else {

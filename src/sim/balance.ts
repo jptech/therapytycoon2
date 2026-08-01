@@ -18,7 +18,7 @@ export const MS_PER_GAME_MINUTE = 100;
 /** Fraction through a session at which the decision beat fires. */
 export const DECISION_AT = 0.55;
 
-export const SAVE_VERSION = 8;
+export const SAVE_VERSION = 9;
 
 /** Bumped when the shape of a recorded action log changes. See src/sim/replay.ts. */
 export const REPLAY_FORMAT = 1;

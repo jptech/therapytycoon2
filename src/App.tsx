@@ -23,6 +23,7 @@ import { UpgradesPanel } from './ui/panels/UpgradesPanel';
 import { ProgramsPanel } from './ui/panels/ProgramsPanel';
 import { PoliciesPanel } from './ui/panels/PoliciesPanel';
 import { CampaignPanel } from './ui/panels/CampaignPanel';
+import { PracticePanel } from './ui/panels/PracticePanel';
 import { WallPanel } from './ui/panels/WallPanel';
 import { SettingsPanel } from './ui/panels/SettingsPanel';
 import { LogPanel } from './ui/panels/LogPanel';
@@ -54,6 +55,7 @@ const PANELS = {
   programs: ProgramsPanel,
   policies: PoliciesPanel,
   campaign: CampaignPanel,
+  practice: PracticePanel,
   wall: WallPanel,
   settings: SettingsPanel,
   log: LogPanel,

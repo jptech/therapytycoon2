@@ -467,6 +467,82 @@ afternoon of cropping, which is the only reason it will actually get done.
 
 ---
 
+## Phase 14 — The long view, and a Saturday sold twice
+
+Two refinements that turned out to share a root: a number the player can see, computed separately
+from the thing it describes.
+
+**The practice had no reference view of itself.** `stats.history` has recorded a `DaySnapshot` every
+evening since Phase 0 — reputation, community trust, practice level, caseload, quality, morale,
+cash — and it had three readers, all of them partial. The Quarter Review draws six of those series
+over a 28-day window and then you dismiss it. The finances panel draws the money-flavoured four.
+The end screen reads it once, after it is over. So the two meters the game *asks* you to steward
+over months, reputation and community trust, existed on screen only as today's value in the HUD
+strip — and both move a fraction of a point a day, which means the current value is the one number
+about them that carries no information.
+
+`src/ui/panels/PracticePanel.tsx` is a rail door rather than a modal, deliberately: `tick()` refuses
+to advance time while anything is pending, so a screen you *browse* must never be a screen that
+stops the clock. It reads the whole history, marks the level-ups on every chart as dashed
+hairlines — derived from the snapshots' own `practiceLevel`, so the ladder above the charts and the
+lines below cannot disagree — and adds no sim state whatsoever.
+
+**Two things in the drawing went out wrong first and are worth recording.**
+
+Pinning reputation and trust to a fixed 0–100 axis was the honest instinct and the wrong picture. A
+run that climbed 10 to 41 came out as a dead flat line along the floor of the box, which is the one
+reading that is definitely false. The fix is to draw to what happened, padded and clamped inside the
+metric's bounds, and print the observed low and high underneath — shape and scale arrive together,
+and nothing is implied that did not occur.
+
+The chart stretches horizontally to whatever width the panel has (`preserveAspectRatio="none"`,
+which is what lets two hundred days fill the box). Lines survive that with a non-scaling stroke.
+A circle does not — the head of the series came out an ellipse. It rides above the svg as a
+positioned element instead. Neither of these is visible to `tsc`, to a unit test, or to the e2e
+suite; both took looking at it.
+
+**And a therapist was being sold a Saturday they had already spent.** `generateTherapist` grants the
+tier-1 cards of a therapist's own modality — that is what "an EMDR therapist" means — but set
+`certifications: []`. Training eligibility filters on `certifications`. So the list offered a new
+EMDR hire *EMDR Part One: Preparation* for $900 and a day of cleared caseload, and the engine's
+`if (!t.techniques.includes(g))` meant it granted nothing at all. A trap purchase, in the game whose
+whole design commitment is no hidden punishments.
+
+`certificationsFor()` derives the record from the cards rather than storing it twice: a course
+counts as sat when every card it grants is already in hand. All-or-nothing, so a mid-career hire —
+who arrives with one of the two tier-2 cards — still sees the tier-2 course, correctly, because it
+still has something to teach them. Save v9 back-fills existing runs, including the hire board. Two
+smaller leaks in the same path went with it: the completion toast counted the brochure's grants
+rather than the cards that actually landed, and the course card promised every grant even when the
+therapist already worked that way. Both now report what the fee buys. `src/sim/training.test.ts`
+holds the invariant — no therapist is ever offered a course whose every card they already hold.
+
+**The harness had been buying the dead course too, and that is the part worth reading.**
+`maybeTrain` in `tools/autoplay.ts` filters on `certifications` exactly the way the panel does. So
+for the whole build, every measured run sent every therapist on a one-day $700 course that granted
+nothing, first, before anything real — and every curve in docs/BALANCE.md was taken against a game
+where training was a cheap skill trickle rather than the expensive, days-away decision the design
+describes. Fixing the trap moved the numbers: Cozy untouched, Standard a little tighter, and
+Challenge at skill 0.6 going from 7/60 collapses to 15/60. Grade distribution and quality drift
+barely moved; this is an economy change, not a quality one. Written up in docs/BALANCE.md →
+*What the certification back-fill moved*.
+
+One modelling error in the bot came out with it and is recorded separately on purpose: it priced a
+course's fee and never its `days`, which was harmless while it only ever bought the cheapest
+one-day option and stopped being harmless the moment it could reach a three-day one. Charging the
+lost days recovered 3 of the 15 collapses. The other 12 are the change. **Tuning the instrument
+until the number comes back is how a harness stops being evidence**, so the correction and the
+result are reported as two things rather than one.
+
+The shared lesson is the one from Phase 12, in a smaller key: **a number the player sees has to be
+computed from the thing that happened, not alongside it.** The certification list and the technique
+list were two records of one fact, and they drifted the moment one of them was written by hand.
+That the drift was invisible for the whole build — through a typechecker, 275 unit tests, a browser
+suite and every balance sweep — is because none of those instruments can see a purchase that is
+merely *pointless*. It took reading the eligibility filter next to the generator.
+
+---
+
 ## What I would tell the next person
 
 **The harness is the product.** Every serious balance problem in this build was found by reading a

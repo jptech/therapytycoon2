@@ -622,8 +622,21 @@ function maybeTrain(game: Game, skill: number): void {
   const avail = activeTherapists(s).filter((t) => t.status === 'available' && !t.isPlayer);
   const who = avail.length ? game.rng.pick(avail) : activeTherapists(s).find((t) => t.status === 'available');
   if (!who) return;
+  // The fee is only half the price — the other half is the caseload their empty
+  // days do not bill, which is why `days` is the number that actually hurts.
+  // This used to price the fee alone and got away with it: a therapist's own
+  // tier-1 course was always top of the list and always the cheapest, one day
+  // away. It was also a course they had already sat, granting nothing — and
+  // once that was fixed the cheapest option became a two- or three-day course
+  // at three to five times the fee, which a reasonable player would weigh and
+  // this one did not. Charging the lost days is what a reasonable player
+  // actually does, not a thumb on the scale to recover a number.
+  const lostDays = (tr: { days: number }) => dailyExpenses(s) * tr.days * 2;
   const options = TRAININGS.filter(
-    (tr) => !who.certifications.includes(tr.id) && meetsRequirement(s, tr.requires, who) && s.cash > tr.cost * 3,
+    (tr) =>
+      !who.certifications.includes(tr.id) &&
+      meetsRequirement(s, tr.requires, who) &&
+      s.cash > tr.cost * 3 + lostDays(tr),
   );
   // Prefer trainings in their own modality first.
   const own = options.filter((tr) => tr.modality === who.modality);

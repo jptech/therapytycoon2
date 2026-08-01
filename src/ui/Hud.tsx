@@ -35,6 +35,7 @@ const RAIL: RailItem[] = [
   { id: 'policies', icon: '⚙️', label: 'Policies', hint: 'The rules the scheduler follows for you' },
   { id: 'campaign', icon: '🏛️', label: 'Accreditation', hint: 'The long road to a Center of Excellence' },
   { id: 'upgrades', icon: '🛋️', label: 'The office', hint: 'Rooms, equipment, certifications' },
+  { id: 'practice', icon: '🕰️', label: 'The long view', hint: 'Reputation, community, and how it all moved' },
   { id: 'wall', icon: '🖼️', label: 'The wall', hint: 'People who finished, and what they said' },
   { id: 'log', icon: '📜', label: 'Day book', hint: 'Everything that happened, in order' },
   { id: 'settings', icon: '⚙︎', label: 'Comfort', hint: 'Calm mode, motion, sound' },

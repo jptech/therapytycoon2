@@ -25,11 +25,15 @@ export type PanelId =
   | 'campaign'
   | 'upgrades'
   | 'wall'
+  | 'practice'
   | 'settings'
   | 'log';
 
 /** How the caseload is ordered. Mirrors the labels in ClientsPanel. */
 export type ClientSortKey = 'priority' | 'progress' | 'unseen' | 'severity';
+
+/** How far back the long view looks. Mirrors the labels in PracticePanel. */
+export type PracticeRange = 'run' | 'quarter' | 'fortnight';
 
 /**
  * How each panel was arranged the last time the player looked at it.
@@ -58,12 +62,17 @@ export interface PanelPrefs {
     /** Entry kinds the player has switched off. */
     hiddenKinds: LogEntry['kind'][];
   };
+  practice: {
+    /** How far back the charts look. */
+    range: PracticeRange;
+  };
 }
 
 export const DEFAULT_PANEL_PREFS: PanelPrefs = {
   clients: { tab: 'caseload', sort: 'priority', atRisk: false, unbooked: false, complex: false, chapter: 'all' },
   staff: { openSections: [] },
   log: { hiddenKinds: [] },
+  practice: { range: 'run' },
 };
 
 /** Key for one therapist's disclosure section, so the two ends agree on it. */

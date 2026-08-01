@@ -119,6 +119,53 @@ Two smaller structural notes on those numbers:
 Quality rises meaningfully across a run — mastery is real — while retaining spread, so no
 difficulty ever reads as solved.
 
+### What the certification back-fill moved
+
+A therapist generated as an EMDR therapist arrives holding the two cards *EMDR Part One* grants —
+that is what the modality means — but used to arrive with `certifications: []`. Training
+eligibility filters on `certifications`, so their own tier-1 course sat at the top of their list,
+cost a fee and a day of cleared caseload, and granted nothing at all. `certificationsFor()` now
+derives the record from the cards, and the dead course disappears.
+
+It is not only a UI fix. `maybeTrain` in the harness bot filters exactly the way the panel does, so
+**the bot had been buying the no-op course too** — for every therapist, first, every time. Its
+cheapest option is now a real tier-2 course: three to five times the fee, two or three days away
+instead of one. That is the training economy the design always described, measured for the first
+time. On the same 60 × 200 sweep, before and after:
+
+| | Cozy | Standard | Challenge |
+| --- | --- | --- | --- |
+| Median cash (skill 0.85) | $143,040 → $134,337 | $50,770 → **$42,702** | $2,160 → $2,254 |
+| Median cash (skill 0.6) | $158,708 → $153,196 | $51,242 → $52,446 | $5,437 → $4,332 |
+| Collapsed (0.85) | 0/60 → 0/60 | 3/60 → 4/60 | 19/60 → 21/60 |
+| Collapsed (0.6) | 0/60 → 0/60 | 2/60 → 2/60 | 7/60 → **15/60** |
+| Accredited (0.85) | 59/60 → 59/60 | 43/60 → **38/60** | 12/60 → 11/60 |
+| Accredited (0.6) | 59/60 → 59/60 | 46/60 → 43/60 | 10/60 → 8/60 |
+| Excellent sessions | 33.3% → 33.5% | 28.4% → 27.7% | 22.9% → 23.5% |
+
+Read that as: **Cozy is untouched, Standard is a little tighter, and Challenge is harder for the
+weaker player.** The grade distribution and the quality drift barely move at all — this is an
+economy change, not a quality change — and all three still print `✓ Late-game still has spread`.
+
+The number to look at is **Challenge at skill 0.6: 7/60 collapses becoming 15/60.** That is the
+largest single movement in this change and it is not noise. It is inside the documented character
+of the mode — Challenge is meant to be hard and winnable, and 25% is well under the 43% this table
+already describes — but it is a real step, and it lands on the *low-skill* player specifically,
+because they are the one for whom a $2,000 course and two unbilled days is the difference.
+
+**One correction to the instrument went with it, and it is worth separating from the result.**
+`maybeTrain` priced a course's fee and never its `days`, even though the game's own copy says the
+empty Tuesday is the expensive half. That omission was harmless while the bot only ever bought the
+cheapest one-day course; it stopped being harmless the moment the bot could reach a three-day one.
+Charging the lost days (`cost * 3 + dailyExpenses * days * 2`) is what a reasonable player does,
+and it recovered Challenge/0.6 from 18/60 collapses to 15/60. The remaining 15 are the change
+itself. This is documented rather than folded in quietly because tuning the instrument until the
+number comes back is exactly how a harness stops being evidence.
+
+Standard's shift moves its listed softness in the wanted direction: accreditation falls from ~72%
+to ~63% at high skill without the collapse floor moving, which is margin pressure rather than
+punishment.
+
 ### How to read this
 
 The three difficulties are three genuinely different games rather than three multipliers:

@@ -1,4 +1,5 @@
 import { SAVE_VERSION } from './balance';
+import { certificationsFor } from './generators';
 import { DEFAULT_POLICIES } from './scheduler';
 import type { GameState } from './types';
 
@@ -87,6 +88,27 @@ const MIGRATIONS: Record<number, Migration> = {
       if (!Array.isArray(sess.memberIds) || !sess.memberIds.length) {
         sess.memberIds = typeof sess.clientId === 'string' ? [sess.clientId] : [];
       }
+    }
+    return s;
+  },
+  8: (s) => {
+    // v8 → v9: a therapist's certifications now record the courses their
+    // starting cards came from, so the training list stops offering a hire the
+    // Saturday they already spent. Back-filled rather than left empty: an old
+    // save's EMDR therapist is no less EMDR trained for having been rolled
+    // yesterday, and `certificationsFor` gates nothing in the sim, so this can
+    // only remove a purchase that was never worth making.
+    const candidates = Array.isArray(s.candidates) ? (s.candidates as Record<string, unknown>[]) : [];
+    const therapists = [
+      ...(Array.isArray(s.therapists) ? (s.therapists as Record<string, unknown>[]) : []),
+      // The hire board too, or a candidate carries the stale record across the
+      // one moment the player is reading it most closely.
+      ...candidates.map((c) => c.therapist as Record<string, unknown>).filter(Boolean),
+    ];
+    for (const t of therapists) {
+      const techniques = Array.isArray(t.techniques) ? (t.techniques as string[]) : [];
+      const held = Array.isArray(t.certifications) ? (t.certifications as string[]) : [];
+      t.certifications = [...new Set([...held, ...certificationsFor(techniques)])];
     }
     return s;
   },

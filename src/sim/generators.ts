@@ -19,6 +19,7 @@ import {
   TECHNIQUES,
   TESTIMONIALS,
   THERAPIST_BIOS,
+  TRAININGS,
   TRAITS,
   philosophyById,
   techniquesByModality,
@@ -273,6 +274,28 @@ export function testimonialFor(rng: Rng, condition: ConditionId): string {
 // Therapists
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * The courses a therapist has plainly already sat, read off the cards in their
+ * hand.
+ *
+ * Somebody who *is* an EMDR therapist did not acquire the calm place and the
+ * container by accident — those two cards are exactly what EMDR Part One
+ * grants, and arriving able to use them means they went. Recording that is not
+ * cosmetic: training eligibility filters on `certifications`, so without this a
+ * new EMDR hire is offered EMDR Part One for $900 and a day of cleared
+ * caseload, and `startTraining` takes the fee for a course whose every card
+ * they already hold. That is a hidden punishment, which this game does not do.
+ *
+ * All-or-nothing on purpose. A mid-career hire arrives with one of the two
+ * tier-2 cards, so the tier-2 course is still genuinely worth sending them on —
+ * and still shows up in their list, correctly.
+ */
+export function certificationsFor(techniques: readonly string[]): string[] {
+  return TRAININGS.filter(
+    (tr) => tr.grants.length > 0 && tr.grants.every((g) => techniques.includes(g)),
+  ).map((tr) => tr.id);
+}
+
 export interface TherapistGenOptions {
   stage?: CareerStage;
   modality?: ModalityId;
@@ -349,7 +372,7 @@ export function generateTherapist(state: GameState, rng: Rng, opts: TherapistGen
     morale: opts.isPlayer ? 72 : clamp(rng.normal(66, 8), 40, 92),
     traits,
     techniques,
-    certifications: [],
+    certifications: certificationsFor(techniques),
     stage,
     salary: opts.isPlayer ? 0 : salary,
     tenure: 0,

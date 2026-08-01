@@ -1043,11 +1043,24 @@ function TrainingList({ v }: { v: StaffView }) {
                     </div>
                     <p className="text-[0.72rem] text-ink-soft leading-snug mt-0.5">{tr.blurb}</p>
                     <div className="flex flex-wrap gap-1.5 mt-1.5">
-                      {tr.grants.map((g) => (
-                        <span key={g} className="chip">
-                          + {techniqueById[g]?.name ?? g}
-                        </span>
-                      ))}
+                      {/* A course can overlap what they already do — a mid-career
+                          hire arrives holding half of their own tier 2. Showing
+                          the brochure's full list would promise cards the fee
+                          does not actually buy. */}
+                      {tr.grants.map((g) => {
+                        const held = v.techniques.includes(g);
+                        return (
+                          <span
+                            key={g}
+                            className="chip"
+                            style={held ? { opacity: 0.55 } : undefined}
+                            title={held ? 'They already work this way — the course revisits it.' : undefined}
+                          >
+                            {held ? '✓ ' : '+ '}
+                            {techniqueById[g]?.name ?? g}
+                          </span>
+                        );
+                      })}
                       <span className="chip">+{tr.skill} skill</span>
                     </div>
                   </div>
