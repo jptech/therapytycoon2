@@ -3,7 +3,7 @@ import { buildTechniqueCards, chapterFor, availableTechniques, resolveSession } 
 import { CHAPTER_BOUNDS, SESSION_VARIANCE } from './balance';
 import { createInitialState } from './engine';
 import { generateClient, generateTherapist } from './generators';
-import { regressionChance } from './quality';
+import { regressionChance, techniqueFit } from './quality';
 import { Rng } from './rng';
 import { techniqueById } from '../content';
 import type { Client, GameState, ScheduledSession, SessionFocus } from './types';
@@ -107,6 +107,82 @@ describe('buildTechniqueCards', () => {
     const c = activeClient(state, rng);
     expect(buildTechniqueCards(state, mkSession(c.id, 'nope', 'process'), rng)).toEqual([]);
     expect(buildTechniqueCards(state, mkSession('nope', t.id, 'process'), rng)).toEqual([]);
+  });
+
+  it('always offers the best-fitting technique the therapist knows', () => {
+    const state = freshState(50);
+    const rng = Rng.fromSeed(4242);
+
+    for (let seed = 0; seed < 40; seed++) {
+      const t = generateTherapist(state, Rng.fromSeed(seed + 900), {});
+      state.therapists.push(t);
+      const c = activeClient(state, Rng.fromSeed(seed + 1300));
+
+      for (const focus of ['stabilize', 'process', 'build_skills'] as SessionFocus[]) {
+        const cards = buildTechniqueCards(state, mkSession(c.id, t.id, focus), rng);
+        const bestFit = Math.max(
+          ...availableTechniques(t).map((id) => techniqueFit(techniqueById[id], c, focus)),
+        );
+        const offered = Math.max(
+          ...cards.map((card) => techniqueFit(techniqueById[card.techniqueId], c, focus)),
+        );
+        expect(offered).toBeCloseTo(bestFit, 10);
+      }
+    }
+  });
+
+  it('leans the hand toward the good end of a large library', () => {
+    // The regression this guards: the old best/median/worst pick made a bigger
+    // library *dilute* the hand. More training must read as better options.
+    const state = freshState(51);
+    const t = state.therapists[0];
+    t.techniques = Object.values(techniqueById).map((x) => x.id);
+    expect(t.techniques.length).toBeGreaterThan(8);
+    const c = activeClient(state, Rng.fromSeed(77));
+    const session = mkSession(c.id, t.id, 'process');
+
+    const pool = t.techniques
+      .map((id) => techniqueFit(techniqueById[id], c, 'process'))
+      .sort((a, b) => b - a);
+    const poolMean = pool.reduce((a, b) => a + b, 0) / pool.length;
+
+    const rng = Rng.fromSeed(2024);
+    let handTotal = 0;
+    let cardCount = 0;
+    const runs = 300;
+    for (let i = 0; i < runs; i++) {
+      const cards = buildTechniqueCards(state, session, rng);
+      expect(cards.length).toBe(4);
+      for (const card of cards) {
+        handTotal += techniqueFit(techniqueById[card.techniqueId], c, 'process');
+        cardCount += 1;
+      }
+    }
+
+    // Averaged over the whole hand — not just the guaranteed slot — the cards
+    // dealt beat a uniform draw from the same library by a clear margin.
+    expect(handTotal / cardCount).toBeGreaterThan(poolMean + 0.05);
+  });
+
+  it('still deals a spread, so the pick has teeth', () => {
+    const state = freshState(52);
+    const t = state.therapists[0];
+    t.techniques = Object.values(techniqueById).map((x) => x.id);
+    const c = activeClient(state, Rng.fromSeed(78));
+    const session = mkSession(c.id, t.id, 'process');
+
+    const rng = Rng.fromSeed(2025);
+    let spreadRuns = 0;
+    const runs = 200;
+    for (let i = 0; i < runs; i++) {
+      const fits = buildTechniqueCards(state, session, rng).map((card) =>
+        techniqueFit(techniqueById[card.techniqueId], c, 'process'),
+      );
+      if (Math.max(...fits) - Math.min(...fits) > 0.15) spreadRuns += 1;
+    }
+    // The wildcard is not forced to be bad, so this is a strong majority
+    // rather than an invariant — a hand of four workable cards is allowed.
+    expect(spreadRuns).toBeGreaterThan(runs * 0.6);
   });
 
   it('flags a stability gate in the card notes', () => {

@@ -2,6 +2,9 @@ import {
   ALLIANCE_SOFTNESS,
   BASE_PROGRESS,
   BREAKTHROUGH_BONUS,
+  CARD_HAND_SIZE,
+  CARD_RANK_BIAS,
+  CARD_WILDCARD_SLOTS,
   CHAPTER_BOUNDS,
   COLLECTION_RATE,
   DIFFICULTIES,
@@ -169,9 +172,23 @@ export function availableTechniques(t: Therapist): string[] {
 }
 
 /**
- * Build the three-to-four technique cards offered at the session's decision beat.
- * Selection is deterministic given the rng, and always includes at least one
- * strong option and one that is situationally wrong — the choice must matter.
+ * Build the up-to-four technique cards offered at the session's decision beat.
+ * Selection is deterministic given the rng.
+ *
+ * The hand is a ladder, not a sample. Slot 1 is always the best-fitting
+ * technique the therapist knows, so training can only ever raise the ceiling of
+ * what is offered. The middle slots are drawn without replacement from the
+ * fit-sorted remainder, weighted `CARD_RANK_BIAS ^ rank`, so they lean hard on
+ * the good end of the list and lean harder the more of that list exists. The
+ * last slot is an unweighted wildcard from what is left — usually weak, because
+ * the biased slots already took the top, but not guaranteed to be.
+ *
+ * This replaced a fixed best / median / worst / wildcard pick, which had the
+ * backwards property that a bigger library made three of the four cards worse:
+ * the median diluted and the worst slot went looking for the single most
+ * inappropriate thing a well-trained therapist had ever learned. Sending
+ * somebody on a course should visibly improve the hand they are dealt, not
+ * bury one good card in deeper chaff.
  */
 export function buildTechniqueCards(
   state: GameState,
@@ -195,20 +212,24 @@ export function buildTechniqueCards(
   }));
   scored.sort((a, b) => b.fit - a.fit);
 
-  const chosen: typeof scored = [];
-  // Best available.
-  chosen.push(scored[0]);
-  // A mid option.
-  const mid = scored[Math.min(scored.length - 1, Math.floor(scored.length / 2))];
-  if (mid && !chosen.includes(mid)) chosen.push(mid);
-  // A weak/wrong option so the pick has teeth.
-  const weak = scored[scored.length - 1];
-  if (weak && !chosen.includes(weak)) chosen.push(weak);
-  // One wildcard for variety.
-  const rest = scored.filter((s) => !chosen.includes(s));
-  if (rest.length) chosen.push(rng.pick(rest));
+  // Slot 1: the best thing they know for this person, always.
+  const chosen: typeof scored = [scored[0]];
+  let remaining = scored.slice(1);
 
-  const cards = rng.shuffle(chosen.slice(0, 4));
+  // Middle slots: rank-biased draws off the top of what is left.
+  const biasedSlots = Math.max(0, CARD_HAND_SIZE - 1 - CARD_WILDCARD_SLOTS);
+  for (let i = 0; i < biasedSlots && remaining.length; i++) {
+    // `remaining` is still fit-sorted, so index is rank.
+    const pick = rng.weighted(remaining, (_, rank) => Math.pow(CARD_RANK_BIAS, rank));
+    if (!pick) break;
+    chosen.push(pick);
+    remaining = remaining.filter((x) => x !== pick);
+  }
+
+  // Last slot: an unweighted wildcard from the remainder.
+  if (remaining.length) chosen.push(rng.pick(remaining));
+
+  const cards = rng.shuffle(chosen.slice(0, CARD_HAND_SIZE));
 
   return cards.map(({ tech, fit }) => {
     const reg = regressionChance(state, c, session.focus, tech.id);

@@ -18,6 +18,45 @@ export const MS_PER_GAME_MINUTE = 100;
 /** Fraction through a session at which the decision beat fires. */
 export const DECISION_AT = 0.55;
 
+/**
+ * How many technique cards the decision beat offers, at most. The hand is a
+ * fixed width no matter how large the therapist's library — four is what fits
+ * on screen and what a person can weigh in the seconds the beat allows.
+ */
+export const CARD_HAND_SIZE = 4;
+
+/**
+ * How sharply the middle of the hand is biased toward the best of what is left.
+ *
+ * Cards 2 and 3 are drawn without replacement from the fit-sorted remainder,
+ * with weight `CARD_RANK_BIAS ^ rank`. At 0.5 the best remaining option is
+ * picked about half the time, the next about a quarter, and rank 5 or worse
+ * essentially never — so a therapist who has actually been trained sees the
+ * good end of their own list, which is the entire point of training them.
+ *
+ * Lower = tighter, more generous hands. 1 reproduces a uniform draw.
+ *
+ * This is deliberately *not* an aggregate bonus — a bigger library shifts which
+ * cards are shown, never what a technique is worth. `techniqueFit` stays
+ * absolute, so nothing here can push session quality past the practice ceiling.
+ * See the aggregate-bonus warning in CLAUDE.md.
+ */
+export const CARD_RANK_BIAS = 0.5;
+
+/**
+ * The last slot is an unweighted draw from whatever the biased slots left
+ * behind — the wildcard. It is not forced to be bad, and some hands will be
+ * four workable cards; it is simply the one slot that does not flatter the
+ * therapist.
+ *
+ * It still supplies most of the hand's teeth, because the biased slots consume
+ * the top of the list first: by the time the wildcard draws, the remainder is
+ * everything mediocre and everything wrong, in a pool where the wrong outnumber
+ * the mediocre. That keeps the decision honest without hard-coding a trap into
+ * every session.
+ */
+export const CARD_WILDCARD_SLOTS = 1;
+
 export const SAVE_VERSION = 9;
 
 /** Bumped when the shape of a recorded action log changes. See src/sim/replay.ts. */

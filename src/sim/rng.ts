@@ -68,20 +68,26 @@ export class Rng {
     return arr[Math.floor(this.next() * arr.length)];
   }
 
-  /** Weighted pick. Items with weight <= 0 are never chosen. */
-  weighted<T>(items: readonly T[], weight: (item: T) => number): T | undefined {
+  /**
+   * Weighted pick. Items with weight <= 0 are never chosen.
+   *
+   * The weight callback receives the index as well as the item, `Array.map`
+   * style, so a caller holding an already-sorted list can weight by rank
+   * without a lookup. Exactly one `next()` is drawn either way.
+   */
+  weighted<T>(items: readonly T[], weight: (item: T, index: number) => number): T | undefined {
     let total = 0;
-    for (const it of items) {
-      const w = weight(it);
+    for (let i = 0; i < items.length; i++) {
+      const w = weight(items[i], i);
       if (w > 0) total += w;
     }
     if (total <= 0) return undefined;
     let r = this.next() * total;
-    for (const it of items) {
-      const w = weight(it);
+    for (let i = 0; i < items.length; i++) {
+      const w = weight(items[i], i);
       if (w <= 0) continue;
       r -= w;
-      if (r <= 0) return it;
+      if (r <= 0) return items[i];
     }
     return items[items.length - 1];
   }

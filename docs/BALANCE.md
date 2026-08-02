@@ -119,6 +119,45 @@ Two smaller structural notes on those numbers:
 Quality rises meaningfully across a run — mastery is real — while retaining spread, so no
 difficulty ever reads as solved.
 
+### What the biased technique hand moved
+
+The decision beat used to deal best / median / worst / wildcard off the fit-sorted list, which had
+the property nobody wanted: **a bigger library made three of the four cards worse.** The median
+diluted as the list grew, and the worst slot went looking for the single most inappropriate thing
+a well-trained therapist had ever learned. Training raised the ceiling of card 1 and buried it in
+deeper chaff.
+
+It now deals a ladder — card 1 is always the best fit, the middle slots are drawn without
+replacement weighted `CARD_RANK_BIAS ^ rank` off what remains, and the last is an unweighted
+wildcard from the leftovers (see `buildTechniqueCards`). Measured on a 20×200 A/B over the same
+seeds, plus a 40×200 confirmation run on Challenge:
+
+| | Cozy | Standard | Challenge |
+| --- | --- | --- | --- |
+| Avg quality | 0.767 → 0.767 | 0.754 → 0.754 | 0.749 → 0.749 |
+| Late p10–p90 | 0.76–0.81 → 0.76–0.81 | 0.74–0.79 → 0.74–0.79 | 0.73–0.78 → 0.73–0.78 |
+| Cures (median) | 163 → 164 | 147 → 149 | 68 → **91** |
+| Collapsed (40×200) | 0/40 → 0/40 | — | 18/40 → **10/40** |
+
+**Average quality does not move at all, and neither does the late-game spread.** That is the
+result to read first, and it is the safety property: this change alters *which techniques are
+offered*, never what a technique is worth. `techniqueFit` stays absolute, so nothing here can
+push a session past the practice ceiling, and the harness still prints *"Late-game still has
+spread"* on all six scenario blocks.
+
+What moves is **cures**, and only where survival was marginal. Better-fitting techniques carry
+better progress multipliers and lower regression, so at identical average quality a run converts
+more hours into finished work. On Cozy and Standard that is worth one or two cures over 200 days.
+On Challenge it is worth a third more, because a Challenge run that clears its early months at all
+goes on to bank everything downstream — which is also why Challenge's regressions and burnouts
+rise in the same table. Those are not a run playing worse; they are a run *lasting longer*.
+
+Read that as: **Cozy and Standard are unchanged, Challenge is meaningfully kinder.** Challenge
+collapse is a cliff outcome and noisy at these sample sizes — the pre-change sweep printed 18/40
+where the table above records 13/40 for the same code on a different seed set — so treat 10/40 as
+"a few points kinder", not as a halving. If Challenge should keep its full bite, the lever is
+`CARD_RANK_BIAS` (raise toward 1 to flatten the ladder) rather than anything in `quality.ts`.
+
 ### What the certification back-fill moved
 
 A therapist generated as an EMDR therapist arrives holding the two cards *EMDR Part One* grants —
